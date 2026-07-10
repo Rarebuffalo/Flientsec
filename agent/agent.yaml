@@ -1,0 +1,12 @@
+server:
+  url: "http://localhost:8000"
+  token: "org_token_abc123"
+interval: 60
+heartbeat_interval: 30
+uuid_file_path: "device_uuid"
+checks:
+  firewall: true
+  encryption: true
+  updates: true
+  ssh: true
+  runtime: true
