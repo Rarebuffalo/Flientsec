@@ -1,0 +1,35 @@
+# Version Control Ignore Rules
+
+# Go
+agent/bin/
+agent/agent
+agent/agent-config.yaml
+agent/device_uuid
+*.exe
+*.test
+*.out
+
+# Node.js (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Python
+backend/venv/
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+backend/.env
+backend/.pytest_cache/
+
+# Local Database & Environment Configurations
+.env
+postgres_data/
+docker-compose.override.yml
