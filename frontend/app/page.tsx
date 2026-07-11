@@ -48,17 +48,21 @@ export default function LandingPage() {
     "dev-laptop-02: Compliance status PASS (Score: 100)",
   ])
   const [copiedCmd, setCopiedCmd] = useState(false)
+  const [copiedText, setCopiedText] = useState("")
+
+  const mockScore = firewallActive ? 85 : 45
+  const mockStatus = firewallActive ? "WARN" : "FAIL"
 
   // Trigger event log addition when firewall changes
   useEffect(() => {
     const timestamp = new Date().toLocaleTimeString()
     if (firewallActive) {
-      setRecentEvents(prev => [
+      setRecentEvents((prev: string[]) => [
         `[${timestamp}] dev-laptop-01: Firewall ENABLED -> Status PASS (Score: 85)`,
         ...prev.slice(0, 4)
       ])
     } else {
-      setRecentEvents(prev => [
+      setRecentEvents((prev: string[]) => [
         `[${timestamp}] dev-laptop-01: Firewall DISABLED -> Status FAIL (Score: 45)`,
         ...prev.slice(0, 4)
       ])
@@ -69,6 +73,12 @@ export default function LandingPage() {
     navigator.clipboard.writeText("curl -fsSL https://flientsec.dev/install.sh | bash")
     setCopiedCmd(true)
     setTimeout(() => setCopiedCmd(false), 2000)
+  }
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedText(text)
+    setTimeout(() => setCopiedText(""), 2000)
   }
 
   // FAQ Accordion State
@@ -346,7 +356,7 @@ export default function LandingPage() {
                         <div className="bg-slate-900 text-slate-300 rounded-lg p-3 border border-slate-800 shadow-sm space-y-2">
                           <p className="text-[9px] uppercase font-bold text-slate-500 tracking-wider font-sans">Heartbeat telemetry log</p>
                           <div className="space-y-1 font-mono text-[9px] leading-relaxed">
-                            {recentEvents.map((evt, idx) => (
+                            {recentEvents.map((evt: string, idx: number) => (
                               <p key={idx} className="truncate select-none">
                                 <span className="text-slate-500">&gt;</span> {evt}
                               </p>
