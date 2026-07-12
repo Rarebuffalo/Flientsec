@@ -1,0 +1,26 @@
+name: Go Agent Build validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build Go Agent
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Build Agent Binary
+        run: |
+          cd agent
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -v -o flientsec-agent-${{ matrix.goos }}-${{ matrix.goarch }} cmd/agent/main.go
