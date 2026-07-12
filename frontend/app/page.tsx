@@ -1073,7 +1073,7 @@ export default function LandingPage() {
               <li><span className="text-slate-400 font-medium cursor-default">Changelog</span></li>
               <li>
                 <a 
-                  href="https://github.com" 
+                  href="https://github.com/Rarebuffalo/Flientsec" 
                   target="_blank" 
                   rel="noreferrer" 
                   className="flex items-center space-x-1 hover:text-[#111827] transition-colors"
