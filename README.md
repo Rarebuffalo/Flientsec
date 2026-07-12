@@ -1,214 +1,275 @@
 # FlientSec
 
-FlientSec is a lightweight developer workstation security posture platform that continuously verifies engineering laptops against organizational security policies, producing compliance records and dashboard insights without requiring administrative enterprise MDM (Mobile Device Management) overhead.
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.21-00ADD8?logo=go)](agent/go.mod)
+[![Python Version](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)](backend/requirements.txt)
+[![Next.js Version](https://img.shields.io/badge/Next.js-14-black?logo=next.js)](frontend/package.json)
+[![Platform](https://img.shields.io/badge/Platform-Linux-FCC624?logo=linux)](docs/faq.md)
+[![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED?logo=docker)](docker-compose.yml)
 
-The system is architected as a monorepo consisting of:
-1. A Go-based agent running as a local background daemon.
-2. A FastAPI backend telemetry store backed by PostgreSQL.
-3. A Next.js fleet dashboard for real-time compliance oversight.
-
----
-
-## Architecture Design
-
-```
-             +----------------------------+
-             |         Go Agent           |
-             |  (Runs checks locally)     |
-             +-------------+--------------+
-                           |
-                           |  CheckRun Payload (Findings & Score)
-                           v
-             +----------------------------+
-             |      FastAPI Backend       | <--- Runs in Docker
-             |   (Validates and Stores)   |
-             +-------------+--------------+
-                           |
-                           |  SQL Schema
-                           v
-             +----------------------------+
-             |      PostgreSQL Database   | <--- Runs in Docker
-             |   (Hosts historical runs)  |
-             +----------------------------+
-```
-
-### Separation of Concerns
-FlientSec employs a client-first design philosophy. Instead of processing telemetry and evaluating business logic on the backend, the Go Agent performs all policy checks and evaluation locally on the developer workstation. The backend acts primarily as a telemetry repository. This reduces computational load on central servers and keeps sensitive configuration audits client-side.
+Continuous developer workstation security posture verification designed for modern engineering organizations. Verify configurations locally, enforce policy as code, and remain audit-ready without deploying intrusive MDM profiles.
 
 ---
 
-## Directory Structure
+## Table of Contents
+- [Product Philosophy](#product-philosophy)
+- [Directory Layout](#directory-layout)
+- [Platform Architecture](#platform-architecture)
+- [Key Features](#key-features)
+- [Quick Start Guide](#quick-start-guide)
+- [Configuration Baseline](#configuration-baseline)
+- [Telemetry REST API](#telemetry-rest-api)
+- [Contributing & Community](#contributing--community)
+- [Vulnerability Disclosures](#vulnerability-disclosures)
+- [Support Channels](#support-channels)
+- [Project License](#project-license)
+
+---
+
+## Product Philosophy
+
+Traditional Mobile Device Management (MDM) platforms were built for corporate lockouts, not modern developer workflows. They install intrusive root configuration profiles that block developer tools, slow down environments, and invade privacy by tracking browser histories and files.
+
+FlientSec changes this workflow:
+- **Linux Native:** Built from the ground up to support Linux distributions (Arch Linux, Ubuntu, Fedora, Debian) that are left unserved by standard enterprise IT.
+- **Policy as Code:** Compliance requirements are defined as simple, git-controlled YAML templates synced to developer machines.
+- **Privacy by Design:** Security baseline checks are parsed and calculated strictly local to the workstation. Telemetry reports only communicate compliance scores (PASS/WARN/FAIL)—your source code, keystrokes, and screen captures never leave your machine.
+
+For more details, see the [Philosophy Guide](docs/philosophy.md).
+
+---
+
+## Directory Layout
 
 ```
 flientsec/
-├── docker-compose.yml       # Local database, API, and UI orchestration
-├── agent/                   # Go Agent Source
+├── .github/                     # GitHub templates and workflows
+│   ├── workflows/               # CI/CD pipeline automation
+│   └── ISSUE_TEMPLATE/          # Issue reporting descriptors
+├── agent/                       # Go agent daemon source
 │   ├── cmd/
-│   │   └── agent/           # Agent daemon main entrypoint
-│   ├── checks/              # Subprocess & file-level system monitors
-│   ├── policy/              # Local YAML policy engine and score evaluator
-│   ├── client/              # Go REST client wrapping check-in APIs
-│   └── queue/               # Thread-safe local cache for server outages
-├── backend/                 # FastAPI Backend Source
+│   │   └── agent/               # Agent main entrypoint
+│   ├── checks/                  # Local system compliance monitors
+│   ├── policy/                  # YAML baseline evaluation engine
+│   ├── client/                  # Backend REST connection client
+│   └── queue/                   # Thread-safe telemetry buffering queue
+├── assets/                      # Visual branding assets
+│   ├── logo/                    # Scalable vector SVG logos
+│   └── screenshots/             # Mockup and console screenshots
+├── backend/                     # FastAPI backend database service source
 │   ├── app/
-│   │   ├── api/             # Endpoint routing
-│   │   ├── core/            # Configuration and SQLAlchemy setups
-│   │   └── models/          # PostgreSQL database mappings
-│   └── requirements.txt     # Python dependency definition
-├── frontend/                # Next.js Marketing & Dashboard Source
-│   ├── app/                 # Next.js App Router Structure
-│   │   ├── (admin)/         # Route group for admin dashboard views
-│   │   │   ├── dashboard/   # Fleet table overview (/dashboard)
-│   │   │   ├── devices/     # Device details panel (/devices/[id])
-│   │   │   ├── policies/    # Policy YAML editor (/policies)
-│   │   │   └── layout.tsx   # Dashboard-specific navigation header and footer
-│   │   ├── page.tsx         # Premium marketing landing page homepage (/)
-│   │   └── layout.tsx       # Blank base layout shell
-│   └── tailwind.config.js   # Tailwind configurations
-├── shared/                  # Common specifications and policies
-└── scripts/                 # Compilation and install helpers
+│   │   ├── api/                 # Telemetry API endpoints
+│   │   ├── core/                # SQL connection pool configurations
+│   │   ├── models/              # SQLAlchemy model definitions
+│   │   └── schemas/             # Pydantic schema validation structures
+│   └── requirements.txt         # Python service requirements
+├── docs/                        # Complete product guides
+│   ├── images/                  # Document graphics and diagrams
+│   ├── architecture.md          # Visual check pipelines
+│   ├── installation.md          # Multi-platform install steps
+│   ├── configuration.md         # agent.yaml variable references
+│   ├── policy-language.md       # YAML baseline checks schema
+│   ├── api.md                   # REST telemetry protocols
+│   ├── cli.md                   # Agent doctor and verification commands
+│   ├── philosophy.md            # Why FlientSec is built for developers
+│   ├── design-system.md         # Typography, color, and spacing guidelines
+│   ├── deployment.md            # Docker compose portals setup
+│   ├── security.md              # TLS, auth headers, and certificates specs
+│   ├── privacy.md               # Data minimization guidelines
+│   └── faq.md                   # Common questions & answers
+├── examples/                    # Sample configurations
+│   ├── basic-policy.yaml        # Basic firewall + encryption rules
+│   ├── strict-policy.yaml       # Strict compiler, update, and port rules
+│   ├── ubuntu-example.yaml      # Baseline configuration for Ubuntu
+│   └── docker-compose.override.yml # Postgres persistence volumes mount
+├── scripts/                     # Automated setup scripts
+│   ├── build.sh                 # Go compile helper script
+│   └── install.sh               # Systemd installer script
+├── AGENTS.md                    # Coding rules for AI developer assistants
+├── CONTRIBUTING.md              # Guidelines for code contributors
+├── CODE_OF_CONDUCT.md           # Community behavior guidelines
+├── SECURITY.md                  # Security vulnerability disclosures rules
+├── LICENSE                      # Project license text (Apache 2.0)
+├── CHANGELOG.md                 # Project release changes log
+├── ROADMAP.md                   # Product roadmap timeline
+├── docker-compose.yml           # Local dev compose setup
+├── .env.example                 # Baseline environment configuration
+└── .gitignore                   # Exclude list rules
 ```
 
 ---
 
-## Telemetry Checks Specification
+## Platform Architecture
 
-The agent includes several independent check routines under `agent/checks/`, executing them concurrently:
-1. **Firewall Check (`firewall.go`):** Queries active rules. Leverages an abstract driver configuration that checks UFW (`ufw status`), firewalld (`firewall-cmd --state`), nftables (`nft list ruleset`), and iptables (`iptables -S`) in order of system availability.
-2. **Encryption Check (`encryption.go`):** Distro-agnostic check validating whether the root partition (`/`) is mounted on a cryptographically mapped block device (using `lsblk` queries or checking `/proc/mounts`).
-3. **OS Updates Check (`updates.go`):** Identifies pending software upgrades using package manager simulation flags (e.g., `checkupdates` for pacman, `apt-get -s upgrade` for apt, or `dnf check-update` for dnf).
-4. **SSH Check (`ssh.go`):** Verifies the daemon status of the OpenSSH unit (`sshd` or `ssh`) and checks for active local bindings on TCP port 22.
-5. **Runtime Check (`runtime.go`):** Loops over an extensible registry of programming toolchains (Node.js, Python, Go, Java, Docker, Git), executing version flags and extracting semantic version strings.
+FlientSec uses a symmetric evaluation model. Telemetry checks are computed on the client workstation rather than central servers:
 
----
-
-## Policy Evaluation & Score System
-
-Workstation checks are compared locally against a YAML policy template (`policy.yaml`):
-
-```yaml
-checks:
-  firewall:
-    enabled: true
-    required: true
-    severity: high
-  encryption:
-    enabled: true
-    required: true
-    severity: high
-  ssh:
-    enabled: true
-    required: false
-    severity: medium
-  updates:
-    enabled: true
-    required: true
-    severity: medium
-  node:
-    enabled: true
-    required: true
-    minimum: "22.0.0"
-    severity: medium
+```
+Developer Workstation             Secure REST API (HTTPS)          Cloud Dashboard
+ ┌─────────────────┐             ┌─────────────────────┐          ┌──────────────┐
+ │                 │             │                     │          │              │
+ │  ┌───────────┐  │             │   Post telemetry    │          │  Postgres    │
+ │  │  Go Agent │──┼────────────>│   ➔ /checkin        │─────────>│  Telemetry   │
+ │  └─────┬─────┘  │             │                     │          │  Database    │
+ │        │        │             └─────────────────────┘          └──────┬───────┘
+ │  Evaluates local│                                                     │
+ │  YAML Policy    │                                                     ▼
+ └─────────────────┘                                              Next.js Portal
 ```
 
-### Score Formulation
-Each check starts with a base score of 100. Failed required rules subtract score points depending on their designated severity setting:
-- **HIGH Severity:** Deducts 40 points
-- **MEDIUM Severity:** Deducts 20 points
-- **LOW Severity:** Deducts 10 points
+1. Go Agent Daemon: Schedules background tickers (30s heartbeat, 60s compliance run) and executes local script monitoring queries (disk encryption, firewall parameters, packages).
+2. Local Evaluator: Passes execution metrics to the local policy sync engine, calculates compliant status codes, and stores records inside a thread-safe memory queue if the backend link drops.
+3. FastAPI REST Telemetry API: Securely authenticates agent headers and stores state checks inside the relational schema (connected hosts, check runs, violation events history).
+4. Next.js Dashboard: Queries findings logs and displays real-time compliance rings, host specs, and copy-paste remediation commands.
 
-The computed score is clamped between 0 and 100.
-The workstation is categorized as:
-- **FAIL:** If any HIGH severity check fails or the overall score falls below 70.
-- **WARN:** If any MEDIUM/LOW checks fail but the overall score remains at or above 70.
-- **PASS:** If all evaluated rules conform to organization standards.
+Refer to the [Architecture Specification](docs/architecture.md) for more details.
 
 ---
 
-## API Documentation
+## Key Features
 
-### Public Routes
-- `GET /api/v1/health`: Checks API status.
-- `GET /api/v1/version`: Returns active schema version targets.
-- `POST /api/v1/auth/login`: Handles login verification, returning a JWT token.
-
-### Go Agent Tunnels
-- `POST /api/v1/agent/register`: Registers workstation baseline attributes on initial boot.
-  - Body:
-    ```json
-    {
-      "id": "UUID",
-      "hostname": "string",
-      "os_name": "string",
-      "os_version": "string",
-      "os_arch": "string",
-      "kernel_version": "string",
-      "agent_version": "string"
-    }
-    ```
-- `POST /api/v1/agent/checkin?device_id=UUID`: Transmits local findings runs.
-  - Body:
-    ```json
-    {
-      "id": "UUID (run_id)",
-      "status": "PASS / FAIL / WARN",
-      "score": 100,
-      "timestamp": "ISO-8601 DateTime",
-      "findings": [
-        {
-          "rule_name": "firewall",
-          "status": "FAIL",
-          "message": "Detailed error string",
-          "severity": "HIGH"
-        }
-      ]
-    }
-    ```
-- `POST /api/v1/agent/heartbeat?device_id=UUID`: Ping endpoint validating device network link states.
-
-### Dashboard Console
-- `GET /api/v1/devices`: Lists active devices (Requires JWT header).
-- `GET /api/v1/devices/{id}`: Detailed specifications of a device (Requires JWT header).
-- `GET /api/v1/devices/{id}/latest-run`: Fetches active findings from the most recent run (Requires JWT header).
-- `GET /api/v1/devices/{id}/history`: Returns check-in status log (Requires JWT header).
-- `GET /api/v1/policies`: Fetches active policy rules.
-- `POST /api/v1/policies`: Sets active policy rules (Requires JWT header).
-- `GET /api/v1/reports/export`: Downloads fleet compliance state in CSV format.
+- **Continuous Assessment:** Background daemon scheduled to run firewall rules, encryption mounts, and update packages checks.
+- **Policy as Code:** Git-controlled YAML baseline rulesets mapping server constraints to developer machines.
+- **Audit-Ready Evidence Logs:** Telemetry check-ins recorded as timestamped events database entries. Exporters download current status to a CSV.
+- **Workstation Cache Queue:** In-memory queue buffering check-in reports during network outages, flushing to the server once the connection is restored.
+- **Privacy Assurance:** Zero user surveillance, keyboard logging, or source code indexing. Only configuration metadata is monitored.
 
 ---
 
-## Execution Guide
+## Quick Start Guide
 
-### 1. Re-organize & Spin Up Local Telemetry Stack
-To support the route transitions and install the required Framer Motion library, clean up redundant folders and rebuild the Docker orchestration:
+This guide details how to compile, launch, and test FlientSec locally.
 
+### Step 1: Launch the Local Infrastructure
+From the repository root, start PostgreSQL, the FastAPI API daemon, and the Next.js frontend using Docker Compose:
 ```bash
-# Clean up redundant old root files (devices/ and policies/)
-python .gemini/antigravity-ide/brain/980c0d41-5331-4ffb-ac6b-4db0e4e5ef50/scratch/cleanup.py
-
-# Rebuild and start the frontend and backend containers
+cp .env.example .env
 docker compose up --build -d
 ```
+Verify the services are online:
+- API Server: `http://localhost:8000/api/v1/health` (returns `{"status": "ok"}`)
+- Dashboard Console: `http://localhost:3000` (sign in with `admin@flientsec.local` / `flientsec_admin_pass`)
 
-### 2. Accessing the Platforms
-- **Marketing Landing Page:** Accessible at `http://localhost:3000`. Demonstrates the interactive hero dashboard card, marketing positioning, and architecture maps.
-- **Admin Fleet Dashboard:** Accessible at `http://localhost:3000/dashboard` (or by clicking "Sign In" / "See Live Demo" on the landing page).
-  - **Email:** `admin@flientsec.local`
-  - **Password:** `flientsec_admin_pass`
-
-### 3. Go Agent Daemon Installation
-To compile and register the Go agent client daemon locally on your developer workstation:
+### Step 2: Install the Go Agent
+Execute the setup script as root to compile the agent, copy default rules to `/etc/flientsec/agent.yaml`, and register a systemd unit:
 ```bash
 sudo ./scripts/install.sh
 ```
-This builds the binary, registers `/etc/flientsec/agent.yaml` configs, mounts a systemd system service unit (`flientsec-agent.service`), and runs the check-in background daemon.
-
-To inspect active check-in logging loops:
+Check that the agent service starts successfully and starts logging handshake events:
 ```bash
 journalctl -u flientsec-agent.service -f
 ```
 
-To run the agent in the foreground for local diagnostics:
-```bash
-./agent/bin/flientsec-agent -config ./agent/agent.yaml
+### Step 3: Trigger Policy Violation (Drift Detection)
+1. Go to `http://localhost:3000` to verify your local computer is registered as **Online** and **Compliant** (Score: 100).
+2. Intentionally disable your local firewall setting to trigger a violation:
+   ```bash
+   sudo ufw disable
+   ```
+3. Observe the systemd service logs. Within 60 seconds, the agent executes local checks, detects that the firewall is inactive, recalculates the compliance score to **60**, sets status to **FAIL**, and posts telemetry to the backend.
+4. Refresh the dashboard console: your device status flips to **FAIL** with a score of **60**. Click "View Details" to see the active finding and the copy-paste remediation snippet.
+
+### Step 4: Remediate the Violation
+1. Copy and execute the remediation command on your system:
+   ```bash
+   sudo ufw enable
+   ```
+2. On the next check-in tick, the agent detects the active firewall, resolves findings, updates score to **100**, and sets status back to **PASS**.
+3. Verify the browser dashboard flips back to **Green (PASS)**.
+4. Check the "Historical Audit Trails" list at the bottom of the device page: it will display the transitions logged automatically:
+   - `Violation triggered: Firewall policy failed.`
+   - `Violation resolved: Firewall policy is now compliant.`
+
+For extended step-by-step guidance, refer to the [Installation Documentation](docs/installation.md).
+
+---
+
+## Configuration Baseline
+
+The Go agent is configured via a YAML file located at `/etc/flientsec/agent.yaml`. Refer to the [Configuration Guide](docs/configuration.md) for custom parameters:
+
+```yaml
+# Server endpoint configuration
+server_url: "http://localhost:8000/api/v1"
+
+# Registration credentials token (provided during onboarding)
+enrollment_token: "flientsec_enroll_token_hash"
+
+# Ticker interval timing (in seconds)
+heartbeat_interval: 30
+check_interval: 60
+
+# Telemetry logging limits
+log_file: "/var/log/flientsec/agent.log"
+log_level: "info"
 ```
+
+---
+
+## Telemetry REST API
+
+FlientSec agents post telemetry payloads encrypted over HTTPS.
+
+### Device Registration (`POST /api/v1/agent/register`)
+**Request:**
+```json
+{
+  "uuid": "430af3a0-7b56-4c92-bd88-0248a901ffba",
+  "hostname": "ubuntu-laptop-02",
+  "os_distribution": "ubuntu",
+  "kernel_version": "5.15.0-generic",
+  "architecture": "x86_64"
+}
+```
+
+### Device Compliance Checkin (`POST /api/v1/agent/checkin`)
+**Request:**
+```json
+{
+  "score": 85,
+  "status": "WARN",
+  "findings": [
+    {
+      "check_name": "updates",
+      "severity": "medium",
+      "status": "failed",
+      "description": "21 pending package upgrades detect on package manager registers."
+    }
+  ]
+}
+```
+
+Refer to the [API Specification](docs/api.md) for endpoints, request/response headers, and error codes.
+
+---
+
+## Contributing & Community
+
+We welcome contributions to FlientSec! Please review our [Contributing Guidelines](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md) before submitting pull requests.
+
+To propose enhancement check definitions:
+1. Fork the repository.
+2. Create your feature branch (`git checkout -b feat/add-nftables-checks`).
+3. Commit your changes (`git commit -am 'feat: add nftables checking module'`).
+4. Push to the branch (`git push origin feat/add-nftables-checks`).
+5. Create a new Pull Request.
+
+---
+
+## Vulnerability Disclosures
+
+If you discover a security vulnerability, please do not report it publicly via GitHub issues. Instead, report it privately to our security team. Refer to [SECURITY.md](SECURITY.md) for disclosure details.
+
+- **Contact Email:** `info.krishnasingh.codes@gmail.com`
+
+---
+
+## Support Channels
+
+- **Bug Reports & Issues:** Submit detailed bugs using our [Issue Templates](.github/ISSUE_TEMPLATE/bug_report.md).
+- **Discussions:** Share custom policies, ask setup questions, and discuss features on [GitHub Discussions](https://github.com/Rarebuffalo/Flientsec/discussions).
+
+---
+
+## Project License
+
+FlientSec is licensed under the Apache License, Version 2.0. Refer to [LICENSE](LICENSE) for details.
