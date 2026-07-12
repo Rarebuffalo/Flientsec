@@ -151,7 +151,7 @@ export default function LandingPage() {
                 Stop chasing compliance screenshots. <span className="text-[#2D8C74]">Know every workstation is secure.</span>
               </h1>
               <p className="text-lg sm:text-xl text-[#6B7280] font-normal leading-relaxed">
-                FlientSec continuously verifies every engineering workstation against your organization's security baseline, so security teams always know what is compliant, what isn't, and exactly how to fix it—without deploying enterprise MDM.
+                FlientSec continuously verifies every engineering workstation against your organization's security baseline, so security teams always know what is compliant, what isn't, and exactly how to fix it ,without deploying enterprise MDM.
               </p>
             </div>
 
@@ -491,7 +491,7 @@ export default function LandingPage() {
           <div className="max-w-3xl border border-slate-200 bg-[#F7F9F8] rounded-xl p-8 space-y-4">
             <h4 className="font-bold text-[#111827] text-xs uppercase tracking-wide">Who is FlientSec NOT for?</h4>
             <p className="text-sm text-[#6B7280] leading-relaxed font-semibold">
-              FlientSec is built for engineering organizations that need continuous workstation security verification. It is **not** a Mobile Device Management (MDM) platform, employee activity monitoring surveillance tool, or endpoint antivirus scanner. We focus strictly on configuration state compliance.
+              FlientSec is built for engineering organizations that need continuous workstation security verification. It is not a Mobile Device Management (MDM) platform, employee activity monitoring surveillance tool, or endpoint antivirus scanner. We focus strictly on configuration state compliance.
             </p>
           </div>
         </div>
@@ -694,7 +694,7 @@ export default function LandingPage() {
                   <ShieldCheck className="h-4 w-4 text-[#2D8C74]" />
                   <span>Privacy guarantee</span>
                 </h4>
-                <p className="text-[10px] text-[#6B7280] mt-2 font-medium leading-relaxed">
+                <p className="text-[11px] text-[#6B7280] mt-2 font-medium leading-relaxed">
                   All checks execute locally on the workstation. Telemetry payloads strictly communicate configuration rules status, not source files or browser sessions.
                 </p>
               </div>
@@ -1021,11 +1021,11 @@ export default function LandingPage() {
             </div>
 
             {/* Subtle bottom terminal installation command card */}
-            <div className="pt-6 border-t border-emerald-900/60 max-w-sm mx-auto flex items-center justify-between font-mono text-[9px] text-emerald-300 bg-[#0d302a]/45 p-2.5 rounded-lg select-all relative z-10">
+            <div className="pt-6 border-t border-emerald-900/60 max-w-sm mx-auto flex items-center justify-between font-mono text-[12px] text-emerald-300 bg-[#0d302a]/45 p-2.5 rounded-lg select-all relative z-10">
               <span>curl -fsSL https://flientsec.dev/install.sh | bash</span>
               <button 
                 onClick={() => handleCopy("curl -fsSL https://flientsec.dev/install.sh | bash")}
-                className="text-[9px] font-bold text-emerald-450 hover:text-emerald-250 ml-4 cursor-pointer focus:outline-none"
+                className="text-[12px] font-bold text-emerald-450 hover:text-emerald-250 ml-4 cursor-pointer focus:outline-none"
               >
                 {copiedText ? "Copied" : "Copy"}
               </button>
