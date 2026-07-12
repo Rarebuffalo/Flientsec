@@ -1,0 +1,21 @@
+# FlientSec - Basic Workstation Security Baseline
+# Evaluates local firewall and disk encryption states only.
+
+checks:
+  # Verify local system firewall rulesets are enabled
+  firewall:
+    enabled: true
+    severity: high
+
+  # Verify the root volume is mounted via crypt mapper nodes
+  disk_encryption:
+    enabled: true
+    severity: high
+
+  # Disable other advanced configuration checks
+  updates:
+    enabled: false
+  ssh:
+    enabled: false
+  runtime:
+    enabled: false

@@ -1,0 +1,37 @@
+# FlientSec - Strict Engineering Organization baseline policy ruleset
+# Requires firewall, disk encryption, pacman updates, and standard runtime toolchains.
+
+checks:
+  # System firewall verification
+  firewall:
+    enabled: true
+    severity: high
+
+  # Disk crypt mounts
+  disk_encryption:
+    enabled: true
+    severity: high
+
+  # Limit update delays to maximum 7 days
+  updates:
+    enabled: true
+    max_delay_days: 7
+    severity: medium
+
+  # Verify OpenSSH daemon limits socket ports
+  ssh:
+    enabled: true
+    max_port: 22
+    severity: low
+
+  # Require exact minimum SemVer on compiler environments
+  runtime:
+    enabled: true
+    severity: medium
+    compilers:
+      - name: "go"
+        min_version: "1.21.0"
+      - name: "docker"
+        min_version: "24.0.0"
+      - name: "node"
+        min_version: "18.0.0"

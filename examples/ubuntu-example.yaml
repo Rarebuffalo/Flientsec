@@ -1,0 +1,23 @@
+# FlientSec - Ubuntu Desktop Security Baseline template
+# Custom parameters suited for standard deb package management.
+
+checks:
+  firewall:
+    enabled: true
+    severity: high
+
+  disk_encryption:
+    enabled: true
+    severity: high
+
+  # Simulates apt upgrade lines in background
+  updates:
+    enabled: true
+    max_delay_days: 14
+    severity: medium
+
+  # Exclude other constraints
+  ssh:
+    enabled: false
+  runtime:
+    enabled: false
