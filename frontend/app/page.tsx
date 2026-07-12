@@ -613,8 +613,8 @@ export default function LandingPage() {
       </section>
 
       {/* 8. Technical Architecture Section (Light Background, Animated packet SVG) */}
-      <section id="architecture" className="py-24 bg-white border-t border-slate-200/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
+      <section id="architecture" className="py-20 bg-white border-t border-slate-200/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="space-y-4">
             <span className="text-[10px] font-bold tracking-widest text-[#2D8C74] uppercase">Engineering Specs</span>
             <h3 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#111827] tracking-tight">
@@ -625,32 +625,32 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="max-w-4xl border border-slate-200 bg-[#F7F9F8]/50 rounded-xl p-8 shadow-sm flex flex-col md:flex-row items-center gap-8">
+          <div className="mt-10 max-w-6xl border border-slate-200 bg-[#F7F9F8]/50 rounded-xl p-8 shadow-sm flex flex-col md:flex-row items-center gap-10">
             
             {/* SVG Diagram Grid with simple CSS keyframe animation */}
             <div className="flex-1 w-full flex justify-center">
               <svg 
-                viewBox="0 0 700 200" 
-                className="w-full max-w-xl font-mono text-[10px]" 
+                viewBox="0 0 850 220" 
+                className="w-full max-w-3xl font-mono text-[10px]" 
                 fill="none" 
                 xmlns="http://www.w3.org/2000/svg"
               >
                 {/* Node Box outlines */}
-                <rect x="5" y="60" width="110" height="70" rx="4" fill="white" stroke="#E2E8F0" strokeWidth="2.5" />
-                <rect x="170" y="60" width="110" height="70" rx="4" fill="white" stroke="#E2E8F0" strokeWidth="2.5" />
-                <rect x="340" y="60" width="120" height="70" rx="4" fill="#12372A" stroke="#12372A" strokeWidth="2.5" />
-                <rect x="520" y="60" width="110" height="70" rx="4" fill="white" stroke="#E2E8F0" strokeWidth="2.5" />
+                <rect x="10" y="70" width="135" height="85" rx="6" fill="white" stroke="#E2E8F0" strokeWidth="3" />
+                <rect x="240" y="70" width="135" height="85" rx="6" fill="white" stroke="#E2E8F0" strokeWidth="3" />
+                <rect x="475" y="70" width="145" height="85" rx="6" fill="#12372A" stroke="#12372A" strokeWidth="3" />
+                <rect x="705" y="70" width="135" height="85" rx="6" fill="white" stroke="#E2E8F0" strokeWidth="3" />
 
                 {/* Flow lines */}
-                <path d="M 115 95 L 170 95" stroke="#CBD5E1" strokeWidth="2" markerEnd="url(#flow-arrow)" />
-                <path d="M 280 95 L 340 95" stroke="#CBD5E1" strokeWidth="2" markerEnd="url(#flow-arrow)" />
-                <path d="M 460 95 L 520 95" stroke="#CBD5E1" strokeWidth="2" markerEnd="url(#flow-arrow)" />
+                <path d="M 145 112 L 240 112" stroke="#CBD5E1" strokeWidth="3" markerEnd="url(#flow-arrow)" />
+                <path d="M 375 112 L 475 112" stroke="#CBD5E1" strokeWidth="3" markerEnd="url(#flow-arrow)" />
+                <path d="M 620 112 L 705 112" stroke="#CBD5E1" strokeWidth="3" markerEnd="url(#flow-arrow)" />
 
                 {/* Animated Packet circle */}
-                <circle cx="280" cy="95" r="4.5" fill="#2D8C74">
+                <circle cx="375" cy="112" r="6" fill="#2D8C74">
                   <animate 
                     attributeName="cx" 
-                    values="280;340" 
+                    values="375;475" 
                     dur="2.5s" 
                     repeatCount="indefinite" 
                   />
@@ -663,21 +663,21 @@ export default function LandingPage() {
                 </circle>
 
                 {/* Node Texts */}
-                <text x="60" y="90" textAnchor="middle" fill="#111827" fontWeight="bold">Workstation</text>
-                <text x="60" y="105" textAnchor="middle" fill="#6B7280" fontSize="8.5">Ubuntu/Arch</text>
+                <text x="77" y="110" textAnchor="middle" fill="#111827" fontWeight="bold" fontSize="11">Workstation</text>
+                <text x="77" y="126" textAnchor="middle" fill="#6B7280" fontSize="9">Ubuntu/Arch</text>
 
-                <text x="225" y="90" textAnchor="middle" fill="#111827" fontWeight="bold">Go Agent</text>
-                <text x="225" y="105" textAnchor="middle" fill="#6B7280" fontSize="8.5">Local Eval</text>
+                <text x="307" y="110" textAnchor="middle" fill="#111827" fontWeight="bold" fontSize="11">Go Agent</text>
+                <text x="307" y="126" textAnchor="middle" fill="#6B7280" fontSize="9">Local Eval</text>
 
-                <text x="400" y="90" textAnchor="middle" fill="#2D8C74" fontWeight="bold">Secure API</text>
-                <text x="400" y="105" textAnchor="middle" fill="white" fontSize="8.5">HTTPS</text>
+                <text x="547" y="110" textAnchor="middle" fill="#2D8C74" fontWeight="bold" fontSize="11">Secure API</text>
+                <text x="547" y="126" textAnchor="middle" fill="white" fontSize="9">HTTPS</text>
 
-                <text x="575" y="90" textAnchor="middle" fill="#111827" fontWeight="bold">Dashboard</text>
-                <text x="575" y="105" textAnchor="middle" fill="#6B7280" fontSize="8.5">Posture Trail</text>
+                <text x="772" y="110" textAnchor="middle" fill="#111827" fontWeight="bold" fontSize="11">Dashboard</text>
+                <text x="772" y="126" textAnchor="middle" fill="#6B7280" fontSize="9">Posture Trail</text>
 
                 {/* Highlight local boundary box */}
-                <rect x="2" y="25" width="286" height="120" rx="8" stroke="#2D8C74" strokeWidth="2" strokeDasharray="6 4" fill="none" />
-                <text x="145" y="18" textAnchor="middle" fill="#2D8C74" fontWeight="bold" fontSize="9">Local Verification Boundary</text>
+                <rect x="2" y="25" width="383" height="150" rx="8" stroke="#2D8C74" strokeWidth="2.5" strokeDasharray="6 4" fill="none" />
+                <text x="193" y="18" textAnchor="middle" fill="#2D8C74" fontWeight="bold" fontSize="10">Local Verification Boundary</text>
 
                 <defs>
                   <marker id="flow-arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
@@ -687,14 +687,14 @@ export default function LandingPage() {
               </svg>
             </div>
 
-            {/* Local Callout */}
-            <div className="w-full md:w-64 flex-shrink-0">
-              <div className="p-4 border-2 border-emerald-500/10 bg-emerald-500/5 rounded-lg">
-                <h4 className="font-bold text-[#111827] text-xs flex items-center space-x-1.5">
-                  <ShieldCheck className="h-4 w-4 text-[#2D8C74]" />
+            {/* Local Callout - Privacy Guarantee Card */}
+            <div className="w-full md:w-80 flex-shrink-0">
+              <div className="p-6 border-2 border-emerald-500/10 bg-emerald-500/5 rounded-lg">
+                <h4 className="font-bold text-[#111827] text-sm flex items-center space-x-2">
+                  <ShieldCheck className="h-5 w-5 text-[#2D8C74]" />
                   <span>Privacy guarantee</span>
                 </h4>
-                <p className="text-[11px] text-[#6B7280] mt-2 font-medium leading-relaxed">
+                <p className="text-xs text-[#6B7280] mt-2.5 font-medium leading-relaxed">
                   All checks execute locally on the workstation. Telemetry payloads strictly communicate configuration rules status, not source files or browser sessions.
                 </p>
               </div>
@@ -705,17 +705,23 @@ export default function LandingPage() {
       </section>
 
       {/* 9. Technical Proof Section [NEW] (YAML rule schema evaluation demonstration) */}
-      <section className="py-24 bg-white border-t border-slate-200/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
-          <div className="space-y-4">
+      <section className="py-20 bg-[#F7F9F8] border-t border-slate-200/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          
+          {/* Left Column: Heading and description */}
+          <div className="lg:col-span-4 space-y-4">
             <span className="text-[10px] font-bold tracking-widest text-[#2D8C74] uppercase">Technical Proof</span>
-            <h3 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#111827] tracking-tight">
+            <h3 className="text-3xl sm:text-4xl font-extrabold text-[#111827] tracking-tight leading-tight">
               Define a policy once. Verify every workstation.
             </h3>
+            <p className="text-sm text-[#6B7280] font-semibold leading-relaxed">
+              Engineering and compliance baselines are stored as simple git-controlled YAML rules. FlientSec automatically evaluates system configurations locally on the workstation and logs compliance outputs.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 max-w-4xl mx-auto">
-            {/* Left: YAML Policy schema */}
+          {/* Right Column: Code editor & evaluation output split */}
+          <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* YAML Policy schema */}
             <div className="bg-[#111827] text-slate-350 rounded-xl p-6 font-mono text-xs leading-relaxed shadow-lg border border-slate-800">
               <p className="text-slate-500"># policy.yaml configuration</p>
               <p className="text-teal-400">checks:</p>
@@ -730,9 +736,9 @@ export default function LandingPage() {
               <p className="pl-8"><span className="text-slate-400">severity:</span> medium</p>
             </div>
 
-            {/* Right: Evaluation panel mockup */}
-            <div className="bg-[#F7F9F8] border border-slate-200 rounded-xl p-8 flex flex-col justify-center space-y-5">
-              <h4 className="font-bold text-[#111827] text-sm">Evaluation Results</h4>
+            {/* Evaluation panel mockup */}
+            <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-center space-y-5 shadow-sm">
+              <h4 className="font-bold text-[#111827] text-xs uppercase tracking-wider">Evaluation Results</h4>
               <div className="space-y-3.5 text-xs font-mono">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
                   <span className="font-semibold text-slate-800">Firewall Ruleset check</span>
@@ -747,11 +753,12 @@ export default function LandingPage() {
                   <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-bold">WARN (9 days)</span>
                 </div>
               </div>
-              <p className="text-xs text-[#6B7280] leading-relaxed pt-2">
+              <p className="text-[11px] text-[#6B7280] leading-relaxed pt-1.5">
                 Evaluator scans local system properties, runs baseline comparisons, and emits formatted compliance metrics immediately.
               </p>
             </div>
           </div>
+
         </div>
       </section>
 
