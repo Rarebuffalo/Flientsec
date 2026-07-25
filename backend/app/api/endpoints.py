@@ -1,11 +1,11 @@
 import csv
 import io
 import uuid
-from uuid import UUID
 import yaml
+import json
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
-# Help helper to fetch current user from JWT token
+# Helper to fetch current user from JWT token
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -33,89 +33,80 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
-# Helper to retrieve default company ID
-def get_default_company(db: Session) -> models.Company:
-    company = db.query(models.Company).order_by(models.Company.created_at.asc()).first()
-    if not company:
-        company = models.Company(name="FlientSec Default Corp")
-        db.add(company)
+# Helper to retrieve default organization ID
+def get_default_organization(db: Session) -> models.Organization:
+    org = db.query(models.Organization).order_by(models.Organization.created_at.asc()).first()
+    if not org:
+        org = models.Organization(name="FlientSec Default Corp")
+        db.add(org)
         db.commit()
-        db.refresh(company)
-    return company
+        db.refresh(org)
+    return org
 
+# Helper to guarantee default seeder is ready
 def ensure_default_data(db: Session):
-    company = get_default_company(db)
+    org = get_default_organization(db)
     
     admin_email = "admin@flientsec.local"
     admin_user = db.query(models.User).filter(models.User.email == admin_email).first()
     if not admin_user:
         admin_user = models.User(
             email=admin_email,
-            hashed_password=security.get_password_hash("flientsec_admin_pass"),
-            role="admin",
-            company_id=company.id
+            hashed_password=security.get_password_hash("flientsec_admin_pass")
         )
         db.add(admin_user)
         db.commit()
         db.refresh(admin_user)
-    else:
-        # Guarantee credentials are synced
-        admin_user.hashed_password = security.get_password_hash("flientsec_admin_pass")
-        admin_user.company_id = company.id
+        
+        # Make Owner of default organization
+        member = models.Member(
+            user_id=admin_user.id,
+            organization_id=org.id,
+            role="owner"
+        )
+        db.add(member)
         db.commit()
+    else:
+        # Guarantee credentials and membership are synced
+        admin_user.hashed_password = security.get_password_hash("flientsec_admin_pass")
+        db.commit()
+        
+        member = db.query(models.Member).filter(
+            models.Member.user_id == admin_user.id,
+            models.Member.organization_id == org.id
+        ).first()
+        if not member:
+            member = models.Member(
+                user_id=admin_user.id,
+                organization_id=org.id,
+                role="owner"
+            )
+            db.add(member)
+            db.commit()
+
+# Helper to authorize agent telemetry calls using client device tokens
+def verify_device_token(device_uuid: str, x_device_token: str, db: Session) -> models.Device:
+    try:
+        dev_id = uuid.UUID(device_uuid)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid UUID format")
+        
+    device = db.query(models.Device).filter(models.Device.id == dev_id).first()
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+        
+    if device.status == "DECOMMISSIONED":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device has been decommissioned")
+        
+    if not device.device_token or device.device_token != x_device_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device credentials")
+        
+    return device
 
 # Public Endpoints
 @router.get("/health")
 def health_check():
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
-
-@router.get("/debug-db")
-def debug_db(db: Session = Depends(get_db)):
-    seed_status = "success"
-    seed_error = None
-    try:
-        ensure_default_data(db)
-    except Exception as e:
-        seed_status = "error"
-        seed_error = str(e)
-        
-    users = db.query(models.User).all()
-    user_list = []
-    for u in users:
-        # Verify plain password
-        match = security.verify_password("flientsec_admin_pass", u.hashed_password)
-        user_list.append({
-            "email": u.email,
-            "role": u.role,
-            "company_id": str(u.company_id) if u.company_id else None,
-            "password_match": match
-        })
-    
-    try:
-        test_hash = security.get_password_hash("test_pass")
-        hash_status = "success"
-        hash_error = None
-    except Exception as e:
-        test_hash = None
-        hash_status = "error"
-        hash_error = str(e)
-
-    companies = db.query(models.Company).all()
-    company_list = [{"id": str(c.id), "name": c.name} for c in companies]
-    
-    return {
-        "seed_status": seed_status,
-        "seed_error": seed_error,
-        "user_count": len(users),
-        "users": user_list,
-        "company_count": len(companies),
-        "companies": company_list,
-        "hash_test": {
-            "status": hash_status,
-            "hash": test_hash,
-            "error": hash_error
-        }
-    }
 
 @router.get("/version")
 def version_check():
@@ -134,17 +125,67 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     access_token = security.create_access_token(subject=user.email)
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Agent APIs
-@router.post("/agent/register", response_model=schemas.DeviceResponse)
-def register_device(device_in: schemas.DeviceRegister, db: Session = Depends(get_db)):
-    # Check if already exists
+# User & Organizations Setup APIs
+@router.post("/auth/register")
+def register_user(login_in: schemas.UserLogin, db: Session = Depends(get_db)):
+    # Check if user already exists
+    user = db.query(models.User).filter(models.User.email == login_in.email).first()
+    if user:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        
+    user = models.User(
+        email=login_in.email,
+        hashed_password=security.get_password_hash(login_in.password)
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    # Create default personal organization for user
+    org = models.Organization(name=f"{login_in.email.split('@')[0]}'s Workspace")
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    
+    # Map user as Owner of new workspace
+    member = models.Member(
+        user_id=user.id,
+        organization_id=org.id,
+        role="owner"
+    )
+    db.add(member)
+    db.commit()
+    
+    return {"status": "registered", "organization": org.name}
+
+# Agent REST APIs
+@router.post("/agent/register")
+def register_device(device_in: schemas.DeviceRegister, enrollment_token: str = Header(...), db: Session = Depends(get_db)):
+    # Validate enrollment token or fallback to default org for MVP compatibility
+    org = None
+    if enrollment_token == "default_token" or enrollment_token == "flientsec_enroll_token_hash":
+        org = get_default_organization(db)
+    else:
+        # Check active enrollment tokens inside db
+        tok = db.query(models.EnrollmentToken).filter(models.EnrollmentToken.token_hash == enrollment_token).first()
+        if tok:
+            if tok.expires_at < datetime.utcnow():
+                raise HTTPException(status_code=status.HTTP_410_GONE, detail="Enrollment token expired")
+            org = tok.organization
+            
+    if not org:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token")
+
+    # Check if device already registered
     device = db.query(models.Device).filter(models.Device.id == device_in.id).first()
-    company = get_default_company(db)
+    
+    # Generate unique Device Token for this specific client
+    dev_token = f"dev_tok_{uuid.uuid4().hex}"
     
     if not device:
         device = models.Device(
             id=device_in.id,
-            company_id=company.id,
+            organization_id=org.id,
             hostname=device_in.hostname,
             os_name=device_in.os_name,
             os_version=device_in.os_version,
@@ -154,11 +195,12 @@ def register_device(device_in: schemas.DeviceRegister, db: Session = Depends(get
             status="ONLINE",
             compliance_status="UNKNOWN",
             compliance_score=100,
+            device_token=dev_token,
             last_checkin=datetime.utcnow()
         )
         db.add(device)
     else:
-        # Update mutable fields
+        # Re-register / reset token on reinstallations
         device.hostname = device_in.hostname
         device.os_name = device_in.os_name
         device.os_version = device_in.os_version
@@ -166,67 +208,75 @@ def register_device(device_in: schemas.DeviceRegister, db: Session = Depends(get
         device.kernel_version = device_in.kernel_version
         device.agent_version = device_in.agent_version
         device.status = "ONLINE"
+        device.device_token = dev_token
         device.last_checkin = datetime.utcnow()
-    
+        
     db.commit()
     db.refresh(device)
-    return device
+    return {"status": "enrolled", "device_token": device.device_token}
 
 @router.post("/agent/heartbeat")
-def agent_heartbeat(device_id: str, db: Session = Depends(get_db)):
-    try:
-        dev_uuid = uuid.UUID(device_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid UUID format")
-        
-    device = db.query(models.Device).filter(models.Device.id == dev_uuid).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not registered")
-    
+def agent_heartbeat(device_uuid: str = Header(...), x_device_token: str = Header(...), db: Session = Depends(get_db)):
+    device = verify_device_token(device_uuid, x_device_token, db)
     device.status = "ONLINE"
     device.last_checkin = datetime.utcnow()
     db.commit()
     return {"status": "ok"}
 
 @router.post("/agent/checkin", response_model=schemas.CheckRunResponse)
-def agent_checkin(device_id: str, checkrun_in: schemas.CheckRunCreate, db: Session = Depends(get_db)):
-    try:
-        dev_uuid = uuid.UUID(device_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid UUID format")
+def agent_checkin(checkrun_in: schemas.CheckRunCreate, device_uuid: str = Header(...), x_device_token: str = Header(...), db: Session = Depends(get_db)):
+    device = verify_device_token(device_uuid, x_device_token, db)
 
-    device = db.query(models.Device).filter(models.Device.id == dev_uuid).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not registered")
+    # Fetch previous failed check rule names to determine transitions
+    prev_failed_rules = {f.check_name for f in device.findings if f.status == "Open"}
 
-    # Fetch previous run to do finding state transitions
-    prev_run = db.query(models.CheckRun).filter(models.CheckRun.device_id == dev_uuid).order_by(models.CheckRun.timestamp.desc()).first()
-    prev_failed_rules = set()
-    if prev_run:
-        prev_failed_rules = {f.rule_name for f in prev_run.findings}
-
-    # Save CheckRun
+    # Save CheckRun log
     check_run = models.CheckRun(
         id=checkrun_in.id,
-        device_id=dev_uuid,
+        device_id=device.id,
         timestamp=checkrun_in.timestamp,
         status=checkrun_in.status,
         score=checkrun_in.score
     )
     db.add(check_run)
 
+    # Re-evaluate active findings linked to this device
     new_failed_rules = set()
     for f_in in checkrun_in.findings:
-        finding = models.Finding(
-            id=uuid.uuid4(),
-            check_run_id=check_run.id,
-            rule_name=f_in.rule_name,
-            status=f_in.status,
-            message=f_in.message,
-            severity=f_in.severity
-        )
-        db.add(finding)
-        new_failed_rules.add(f_in.rule_name)
+        # Create or update active finding
+        finding = db.query(models.Finding).filter(
+            models.Finding.device_id == device.id,
+            models.Finding.check_name == f_in.check_name,
+            models.Finding.status == "Open"
+        ).first()
+        
+        if not finding:
+            finding = models.Finding(
+                id=uuid.uuid4(),
+                device_id=device.id,
+                check_name=f_in.check_name,
+                severity=f_in.severity,
+                status="Open",
+                reason=f_in.reason,
+                created_at=datetime.utcnow()
+            )
+            db.add(finding)
+        else:
+            finding.reason = f_in.reason
+            
+        new_failed_rules.add(f_in.check_name)
+
+    # Resolve findings no longer reported
+    for check_name in prev_failed_rules:
+        if check_name not in new_failed_rules:
+            finding = db.query(models.Finding).filter(
+                models.Finding.device_id == device.id,
+                models.Finding.check_name == check_name,
+                models.Finding.status == "Open"
+            ).first()
+            if finding:
+                finding.status = "Resolved"
+                finding.resolved_at = datetime.utcnow()
 
     # Process events based on diffs
     all_monitored_rules = prev_failed_rules.union(new_failed_rules)
@@ -235,7 +285,7 @@ def agent_checkin(device_id: str, checkrun_in: schemas.CheckRunCreate, db: Sessi
             # Trigger Event
             event_msg = f"Violation triggered: {rule.capitalize()} policy failed."
             event = models.Event(
-                device_id=dev_uuid,
+                device_id=device.id,
                 type="VIOLATION_TRIGGERED",
                 rule_name=rule,
                 message=event_msg,
@@ -246,7 +296,7 @@ def agent_checkin(device_id: str, checkrun_in: schemas.CheckRunCreate, db: Sessi
             # Resolved Event
             event_msg = f"Violation resolved: {rule.capitalize()} policy is now compliant."
             event = models.Event(
-                device_id=dev_uuid,
+                device_id=device.id,
                 type="VIOLATION_RESOLVED",
                 rule_name=rule,
                 message=event_msg,
@@ -267,29 +317,34 @@ def agent_checkin(device_id: str, checkrun_in: schemas.CheckRunCreate, db: Sessi
 # Dashboard APIs (Requires auth)
 @router.get("/devices", response_model=List[schemas.DeviceResponse])
 def list_devices(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Update offline states based on check-in timeouts (> 2 minutes means OFFLINE for MVP checkups)
+    # Find matching organizations memberships
+    memberships = [m.organization_id for m in current_user.memberships]
+    
+    # Update offline states based on check-in timeouts (> 2 minutes means OFFLINE for dashboard preview)
     timeout_threshold = datetime.utcnow() - timedelta(minutes=2)
     offline_devices = db.query(models.Device).filter(
         models.Device.last_checkin < timeout_threshold,
-        models.Device.status != "OFFLINE"
+        models.Device.status == "ONLINE"
     ).all()
     for dev in offline_devices:
         dev.status = "OFFLINE"
     if offline_devices:
         db.commit()
 
-    return db.query(models.Device).filter(models.Device.company_id == current_user.company_id).all()
+    return db.query(models.Device).filter(models.Device.organization_id.in_(memberships)).all()
 
 @router.get("/devices/{id}", response_model=schemas.DeviceResponse)
 def get_device(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    device = db.query(models.Device).filter(models.Device.id == id, models.Device.company_id == current_user.company_id).first()
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = db.query(models.Device).filter(models.Device.id == id, models.Device.organization_id.in_(memberships)).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     return device
 
 @router.get("/devices/{id}/latest-run", response_model=Optional[schemas.CheckRunResponse])
 def get_device_latest_run(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    device = db.query(models.Device).filter(models.Device.id == id, models.Device.company_id == current_user.company_id).first()
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = db.query(models.Device).filter(models.Device.id == id, models.Device.organization_id.in_(memberships)).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     run = db.query(models.CheckRun).filter(models.CheckRun.device_id == id).order_by(models.CheckRun.timestamp.desc()).first()
@@ -297,64 +352,113 @@ def get_device_latest_run(id: uuid.UUID, db: Session = Depends(get_db), current_
 
 @router.get("/devices/{id}/history", response_model=List[schemas.EventResponse])
 def get_device_history(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    device = db.query(models.Device).filter(models.Device.id == id, models.Device.company_id == current_user.company_id).first()
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = db.query(models.Device).filter(models.Device.id == id, models.Device.organization_id.in_(memberships)).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     return db.query(models.Event).filter(models.Event.device_id == id).order_by(models.Event.timestamp.desc()).all()
 
-@router.get("/policies", response_model=schemas.PolicyResponse)
-def get_policies(db: Session = Depends(get_db)):
-    # Returns first active policy or generates default
-    policy = db.query(models.Policy).filter(models.Policy.is_active == True).first()
+@router.get("/devices/{id}/findings", response_model=List[schemas.FindingResponse])
+def get_device_findings(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = db.query(models.Device).filter(models.Device.id == id, models.Device.organization_id.in_(memberships)).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return db.query(models.Finding).filter(models.Finding.device_id == id).order_by(models.Finding.created_at.desc()).all()
+
+def seed_default_policy(db: Session, admin_user: models.User) -> models.Policy:
+    org = None
+    if admin_user.memberships:
+        org_id = admin_user.memberships[0].organization_id
+        org = db.query(models.Organization).filter(models.Organization.id == org_id).first()
+    if not org:
+        org = get_default_organization(db)
+        
+    policy = db.query(models.Policy).filter(models.Policy.organization_id == org.id).first()
     if not policy:
-        company = get_default_company(db)
+        policy = models.Policy(
+            organization_id=org.id,
+            name=f"{org.name} Baseline Policy",
+            description="Default workstation configuration checks definition."
+        )
+        db.add(policy)
+        db.commit()
+        db.refresh(policy)
+        
+        # Seed Policy Version 1
         default_rules = {
             "checks": {
                 "firewall": {"enabled": True, "required": True, "severity": "HIGH"},
                 "encryption": {"enabled": True, "required": True, "severity": "HIGH"},
                 "ssh": {"enabled": True, "required": False, "severity": "MEDIUM"},
                 "updates": {"enabled": True, "required": True, "severity": "MEDIUM"},
-                "node": {"enabled": True, "required": True, "minimum": "22.0.0", "severity": "MEDIUM"},
-                "docker": {"enabled": True, "required": False, "minimum": "20.0.0", "severity": "LOW"}
+                "runtime": {"enabled": True, "required": True, "severity": "MEDIUM"}
             }
         }
-        policy = models.Policy(
-            company_id=company.id,
-            rules_yaml=yaml.dump(default_rules),
-            is_active=True
+        ver = models.PolicyVersion(
+            policy_id=policy.id,
+            version_number=1,
+            definition_json=json.dumps(default_rules),
+            created_by=admin_user.id
         )
-        db.add(policy)
+        db.add(ver)
         db.commit()
-        db.refresh(policy)
     return policy
 
-@router.post("/policies", response_model=schemas.PolicyResponse)
-def update_policies(policy_in: schemas.PolicyCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify input is valid YAML
+@router.get("/policies", response_model=schemas.PolicyResponse)
+def get_policies(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    # Returns first policy or generates default organizational workspace mapping
+    org = None
+    if current_user.memberships:
+        org_id = current_user.memberships[0].organization_id
+        org = db.query(models.Organization).filter(models.Organization.id == org_id).first()
+    if not org:
+        org = get_default_organization(db)
+        
+    policy = db.query(models.Policy).filter(models.Policy.organization_id == org.id).first()
+    if not policy:
+        policy = seed_default_policy(db, current_user)
+    return policy
+
+@router.get("/policies/{id}/versions", response_model=List[schemas.PolicyVersionResponse])
+def list_policy_versions(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = db.query(models.Policy).filter(models.Policy.id == id, models.Policy.organization_id.in_(memberships)).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return db.query(models.PolicyVersion).filter(models.PolicyVersion.policy_id == id).order_by(models.PolicyVersion.version_number.desc()).all()
+
+@router.post("/policies/{id}/versions", response_model=schemas.PolicyVersionResponse)
+def create_policy_version(id: uuid.UUID, rules_json: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = db.query(models.Policy).filter(models.Policy.id == id, models.Policy.organization_id.in_(memberships)).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+        
+    # Check JSON correctness
     try:
-        yaml.safe_load(policy_in.rules_yaml)
+        json.loads(rules_json)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid YAML content: {str(e)}")
-
-    # Deactivate current active policies
-    db.query(models.Policy).filter(
-        models.Policy.company_id == current_user.company_id,
-        models.Policy.is_active == True
-    ).update({"is_active": False})
-
-    new_policy = models.Policy(
-        company_id=current_user.company_id,
-        rules_yaml=policy_in.rules_yaml,
-        is_active=True
+        raise HTTPException(status_code=400, detail=f"Invalid JSON specification: {str(e)}")
+        
+    last_ver = db.query(models.PolicyVersion).filter(models.PolicyVersion.policy_id == id).order_by(models.PolicyVersion.version_number.desc()).first()
+    next_num = (last_ver.version_number + 1) if last_ver else 1
+    
+    new_ver = models.PolicyVersion(
+        policy_id=id,
+        version_number=next_num,
+        definition_json=rules_json,
+        created_by=current_user.id
     )
-    db.add(new_policy)
+    db.add(new_ver)
     db.commit()
-    db.refresh(new_policy)
-    return new_policy
+    db.refresh(new_ver)
+    return new_ver
 
 @router.get("/reports/export")
 def export_csv_report(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    devices = db.query(models.Device).filter(models.Device.company_id == current_user.company_id).all()
+    memberships = [m.organization_id for m in current_user.memberships]
+    devices = db.query(models.Device).filter(models.Device.organization_id.in_(memberships)).all()
     
     output = io.StringIO()
     writer = csv.writer(output)
