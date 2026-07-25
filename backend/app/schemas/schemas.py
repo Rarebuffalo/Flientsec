@@ -15,8 +15,26 @@ class Token(BaseModel):
 class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class MemberResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    organization_id: UUID
     role: str
-    company_id: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# Organization Schemas
+class OrganizationResponse(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -33,7 +51,7 @@ class DeviceRegister(BaseModel):
 
 class DeviceResponse(BaseModel):
     id: UUID
-    company_id: UUID
+    organization_id: UUID
     hostname: str
     os_name: str
     os_version: str
@@ -44,23 +62,27 @@ class DeviceResponse(BaseModel):
     compliance_status: str
     compliance_score: int
     last_checkin: Optional[datetime] = None
+    device_token: Optional[str] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True
 
 # Finding Schemas
 class FindingCreate(BaseModel):
-    rule_name: str
-    status: str
-    message: str
+    check_name: str
     severity: str
+    status: str
+    reason: str
 
 class FindingResponse(BaseModel):
     id: UUID
-    rule_name: str
-    status: str
-    message: str
+    check_name: str
     severity: str
+    status: str
+    reason: str
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -79,7 +101,6 @@ class CheckRunResponse(BaseModel):
     timestamp: datetime
     status: str
     score: int
-    findings: List[FindingResponse]
 
     class Config:
         from_attributes = True
@@ -98,13 +119,26 @@ class EventResponse(BaseModel):
 
 # Policy Schemas
 class PolicyCreate(BaseModel):
-    rules_yaml: str
+    name: str
+    description: Optional[str] = None
 
 class PolicyResponse(BaseModel):
     id: UUID
-    company_id: UUID
-    rules_yaml: str
-    is_active: bool
+    organization_id: UUID
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class PolicyVersionResponse(BaseModel):
+    id: UUID
+    policy_id: UUID
+    version_number: int
+    definition_json: str
+    created_by: UUID
+    created_at: datetime
 
     class Config:
         from_attributes = True
