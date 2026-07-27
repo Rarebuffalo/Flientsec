@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 )
 
 type Client struct {
-	BaseURL    string
-	Token      string
-	HTTPClient *http.Client
+	BaseURL     string
+	Token       string
+	DeviceToken string
+	HTTPClient  *http.Client
 }
 
 func NewClient(baseURL, token string) *Client {
@@ -36,6 +36,11 @@ type DeviceRegister struct {
 	AgentVersion  string `json:"agent_version"`
 }
 
+type RegisterResponse struct {
+	Status      string `json:"status"`
+	DeviceToken string `json:"device_token"`
+}
+
 func (c *Client) Register(device DeviceRegister) error {
 	endpoint := fmt.Sprintf("%s/api/v1/agent/register", c.BaseURL)
 	
@@ -50,7 +55,7 @@ func (c *Client) Register(device DeviceRegister) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Enrollment-Token", c.Token)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -62,20 +67,29 @@ func (c *Client) Register(device DeviceRegister) error {
 		return fmt.Errorf("registration failed with status code: %d", resp.StatusCode)
 	}
 
+	var regResp RegisterResponse
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(bodyBytes, &regResp); err != nil {
+		return err
+	}
+	c.DeviceToken = regResp.DeviceToken
+
 	return nil
 }
 
 func (c *Client) SendHeartbeat(deviceID string) error {
-	params := url.Values{}
-	params.Add("device_id", deviceID)
-	endpoint := fmt.Sprintf("%s/api/v1/agent/heartbeat?%s", c.BaseURL, params.Encode())
+	endpoint := fmt.Sprintf("%s/api/v1/agent/heartbeat", c.BaseURL)
 
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {
 		return err
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Device-Uuid", deviceID)
+	req.Header.Set("X-Device-Token", c.DeviceToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -91,9 +105,7 @@ func (c *Client) SendHeartbeat(deviceID string) error {
 }
 
 func (c *Client) SendCheckin(deviceID string, payload interface{}) error {
-	params := url.Values{}
-	params.Add("device_id", deviceID)
-	endpoint := fmt.Sprintf("%s/api/v1/agent/checkin?%s", c.BaseURL, params.Encode())
+	endpoint := fmt.Sprintf("%s/api/v1/agent/checkin", c.BaseURL)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -106,7 +118,8 @@ func (c *Client) SendCheckin(deviceID string, payload interface{}) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Device-Uuid", deviceID)
+	req.Header.Set("X-Device-Token", c.DeviceToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -121,7 +134,7 @@ func (c *Client) SendCheckin(deviceID string, payload interface{}) error {
 	return nil
 }
 
-func (c *Client) GetPolicy() ([]byte, error) {
+func (c *Client) GetPolicy(deviceID string) ([]byte, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/policies", c.BaseURL)
 
 	req, err := http.NewRequest("GET", endpoint, nil)
@@ -129,7 +142,8 @@ func (c *Client) GetPolicy() ([]byte, error) {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.Token))
+	req.Header.Set("Device-Uuid", deviceID)
+	req.Header.Set("X-Device-Token", c.DeviceToken)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

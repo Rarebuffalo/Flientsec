@@ -205,9 +205,7 @@ func startHeartbeatLoop(c *client.Client, deviceID string, intervalSecs int) {
 }
 
 func runChecksAndPost(c *client.Client, deviceID string, cfg *AgentConfig) {
-	// 1. Fetch policy from backend
-	slog.Info("Fetching active security policy from backend...")
-	policyData, err := c.GetPolicy()
+	policyData, err := c.GetPolicy(deviceID)
 	if err != nil {
 		slog.Warn("Failed to fetch active policy from backend. Falling back to default policy rules", "err", err)
 	}
