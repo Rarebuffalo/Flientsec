@@ -21,4 +21,5 @@ def get_db():
 def init_db():
     # Import models to register metadata
     from app.models.models import Organization, User, Member, Session, EnrollmentToken, Device, DeviceGroup, Policy, PolicyVersion, CheckRun, Finding, Event
+    # Base.metadata.drop_all(bind=engine) # Commented out after initial schema sync to prevent data loss on restarts
     Base.metadata.create_all(bind=engine)
