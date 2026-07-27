@@ -59,22 +59,23 @@ export default function DeviceDetails() {
     const loadDetails = async () => {
       try {
         setLoading(true)
-        // Login to get token
-        const loginRes = await fetch(`${apiUrl}/api/v1/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            username: "admin@flientsec.local",
-            password: "flientsec_admin_pass"
-          })
-        })
-        if (!loginRes.ok) throw new Error("Auth failed")
-        const tokenData = await loginRes.json()
-        const headers = { Authorization: `Bearer ${tokenData.access_token}` }
+        const token = localStorage.getItem("flientsec_token")
+        if (!token) {
+          setError("No session active. Redirecting...")
+          return
+        }
+        const headers = { Authorization: `Bearer ${token}` }
 
         // Fetch Device specs
         const devRes = await fetch(`${apiUrl}/api/v1/devices/${deviceId}`, { headers })
-        if (!devRes.ok) throw new Error("Device not found")
+        if (!devRes.ok) {
+          if (devRes.status === 401) {
+            localStorage.removeItem("flientsec_token")
+            window.location.href = "/login"
+            return
+          }
+          throw new Error("Device not found")
+        }
         const devData = await devRes.json()
         setDevice(devData)
 
@@ -107,6 +108,28 @@ export default function DeviceDetails() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
     alert("Copied to clipboard: " + text)
+  }
+
+  const handleRevoke = async () => {
+    if (!confirm("Are you sure you want to decommission/revoke this device? Once revoked, the agent's token is invalid and no more reports will be accepted.")) {
+      return
+    }
+    try {
+      const token = localStorage.getItem("flientsec_token")
+      const headers = { Authorization: `Bearer ${token}` }
+      const res = await fetch(`${apiUrl}/api/v1/devices/${deviceId}/revoke`, {
+        method: "POST",
+        headers,
+      })
+      if (!res.ok) {
+        throw new Error("Failed to revoke device")
+      }
+      const updatedDevice = await res.json()
+      setDevice(updatedDevice)
+      alert("Device successfully decommissioned/revoked.")
+    } catch (err: any) {
+      alert(err.message || "Failed to revoke device")
+    }
   }
 
   // Get remediation code snippet
@@ -167,12 +190,22 @@ export default function DeviceDetails() {
               className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
                 device.status === "ONLINE"
                   ? "bg-success/10 text-success border border-success/20"
+                  : device.status === "DECOMMISSIONED"
+                  ? "bg-danger/10 text-danger border border-danger/20"
                   : "bg-slate-100 text-slate-400 border border-slate-200"
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${device.status === "ONLINE" ? "bg-success" : "bg-slate-400"}`}></span>
+              <span className={`h-1.5 w-1.5 rounded-full ${device.status === "ONLINE" ? "bg-success" : device.status === "DECOMMISSIONED" ? "bg-danger" : "bg-slate-400"}`}></span>
               <span>{device.status}</span>
             </span>
+            {device.status !== "DECOMMISSIONED" && (
+              <button
+                onClick={handleRevoke}
+                className="px-3 py-1 bg-danger hover:bg-red-800 text-white text-xs font-bold rounded-lg transition-colors"
+              >
+                Revoke Device
+              </button>
+            )}
           </div>
         </div>
         <div className="flex items-center space-x-4">
