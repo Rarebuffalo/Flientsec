@@ -88,6 +88,16 @@ class FindingResponse(BaseModel):
         from_attributes = True
 
 # CheckRun Schemas
+class DeviceFindingResponse(BaseModel):
+    id: UUID
+    rule_name: str
+    severity: str
+    status: str
+    message: str
+
+    class Config:
+        from_attributes = True
+
 class CheckRunCreate(BaseModel):
     id: UUID
     status: str
@@ -101,6 +111,7 @@ class CheckRunResponse(BaseModel):
     timestamp: datetime
     status: str
     score: int
+    findings: List[DeviceFindingResponse] = []
 
     class Config:
         from_attributes = True

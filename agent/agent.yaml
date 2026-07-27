@@ -1,6 +1,6 @@
 server:
   url: "http://localhost:8000"
-  token: "flientsec_enroll_30b2885f8cba46a59e684a580f00406b" # Replace this with the enrollment token generated from the Settings tab
+  token: "flientsec_enroll_ea62622210424751957c749b9278b0b2" # Replace this with the enrollment token generated from the Settings tab
 interval: 10
 heartbeat_interval: 5
 uuid_file_path: "device.uuid"

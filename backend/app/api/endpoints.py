@@ -5,7 +5,7 @@ import yaml
 import json
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -415,8 +415,34 @@ def get_device_latest_run(id: uuid.UUID, db: Session = Depends(get_db), current_
     device = db.query(models.Device).filter(models.Device.id == id, models.Device.organization_id.in_(memberships)).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+    
     run = db.query(models.CheckRun).filter(models.CheckRun.device_id == id).order_by(models.CheckRun.timestamp.desc()).first()
-    return run
+    if not run:
+        return None
+        
+    open_findings = db.query(models.Finding).filter(
+        models.Finding.device_id == id,
+        models.Finding.status == "Open"
+    ).all()
+    
+    findings_list = []
+    for f in open_findings:
+        findings_list.append(schemas.DeviceFindingResponse(
+            id=f.id,
+            rule_name=f.check_name,
+            severity=f.severity,
+            status="FAIL" if f.severity == "HIGH" else "WARN",
+            message=f.reason
+        ))
+        
+    return schemas.CheckRunResponse(
+        id=run.id,
+        device_id=run.device_id,
+        timestamp=run.timestamp,
+        status=run.status,
+        score=run.score,
+        findings=findings_list
+    )
 
 @router.get("/devices/{id}/history", response_model=List[schemas.EventResponse])
 def get_device_history(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -579,7 +605,33 @@ def create_policy_version(id: uuid.UUID, rules_json: str, db: Session = Depends(
     return new_ver
 
 @router.get("/reports/export")
-def export_csv_report(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def export_csv_report(
+    db: Session = Depends(get_db),
+    token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None)
+):
+    # Retrieve authentication token from query parameter fallback or authorization header
+    auth_token = None
+    if token:
+        auth_token = token
+    elif authorization and authorization.startswith("Bearer "):
+        auth_token = authorization.split(" ")[1]
+        
+    if not auth_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    email = security.decode_access_token(auth_token)
+    if email is None:
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
+        
+    current_user = db.query(models.User).filter(models.User.email == email).first()
+    if not current_user:
+        raise HTTPException(status_code=401, detail="User not found")
+
     memberships = [m.organization_id for m in current_user.memberships]
     devices = db.query(models.Device).filter(models.Device.organization_id.in_(memberships)).all()
     
