@@ -173,8 +173,8 @@ export default function LandingPage() {
           
           {/* Mid-ground Interactive Security Panel (Diorama) */}
           <div className="absolute right-[-5%] top-1/2 -translate-y-1/2 w-[960px] h-[720px] pointer-events-none opacity-40 md:opacity-100 transition-all duration-700 ease-out z-0 diorama-panel" style={{ transform: "rotateY(-15deg) rotateX(5deg) translateZ(-150px) translateX(20%)", transformStyle: "preserve-3d" }}>
-            <div className="absolute inset-0 unified-card backdrop-blur-md overflow-hidden ring-1 ring-inset ring-white/5">
-              <div className="h-12 border-b-[0.5px] border-outline-variant flex items-center px-4 justify-between bg-surface-container-low/90">
+            <div className="absolute inset-0 rounded-xl border border-outline-variant/30 bg-[#0e0e11]/55 backdrop-blur-[4px] overflow-hidden ring-1 ring-inset ring-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+              <div className="h-12 border-b-[0.5px] border-outline-variant/50 flex items-center px-4 justify-between bg-[#131317]/80">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full bg-outline-variant/30"></span>
                   <span className="w-3 h-3 rounded-full bg-outline-variant/30"></span>
@@ -184,28 +184,28 @@ export default function LandingPage() {
               </div>
               
               {/* Continuous Scrolling Log Stream */}
-              <div className="absolute inset-y-12 left-[40%] right-[35%] overflow-hidden border-x-[0.5px] border-outline-variant/30 bg-terminal-black/30 opacity-40 z-float-1">
-                <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-surface-container-high/90 to-transparent z-10"></div>
-                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-surface-container-high/90 to-transparent z-10"></div>
-                <div className="flex flex-col animate-scroll-y font-log-tiny text-[9px] text-primary-fixed-dim/70 leading-relaxed p-4 space-y-2 w-full">
-                  <div>[AUTH] session verified for user: sys-admin</div>
-                  <div>[TPM] hardware attestation active: dev-wk-11</div>
-                  <div>[NET] secure tunnel established: node-tx-99</div>
-                  <div>[SYS] policy eval: strict_firewall passing</div>
-                  <div>[SEC] biometric token renewed: success</div>
-                  <div>[AUTH] token valid: exp 1h</div>
-                  <div>[TPM] pcr0 verified: match</div>
-                  <div>[NET] zero-trust posture: OK</div>
-                  <div>[SYS] osquery sig check: match</div>
-                  <div>[AUTH] session verified for user: sys-admin</div>
-                  <div>[TPM] hardware attestation active: dev-wk-11</div>
-                  <div>[NET] secure tunnel established: node-tx-99</div>
-                  <div>[SYS] policy eval: strict_firewall passing</div>
-                  <div>[SEC] biometric token renewed: success</div>
-                  <div>[AUTH] token valid: exp 1h</div>
-                  <div>[TPM] pcr0 verified: match</div>
-                  <div>[NET] zero-trust posture: OK</div>
-                  <div>[SYS] osquery sig check: match</div>
+              <div className="absolute inset-y-12 left-[40%] right-[35%] overflow-hidden border-x-[0.5px] border-outline-variant/20 bg-terminal-black/45 opacity-85 z-float-1">
+                <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[#0e0e11] to-transparent z-10"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#0e0e11] to-transparent z-10"></div>
+                <div className="flex flex-col animate-scroll-y font-log-tiny text-[9px] leading-relaxed p-4 space-y-2 w-full">
+                  <div className="text-secondary-fixed-dim opacity-95">&gt; [AUTH] session verified: sys-admin</div>
+                  <div className="text-primary-fixed-dim opacity-95">&gt; [TPM] attestation active: dev-wk-11</div>
+                  <div className="text-[#34d399] opacity-95">&gt; [NET] tunnel established: node-tx-99</div>
+                  <div className="text-on-surface opacity-95">&gt; [SYS] policy eval: strict_firewall OK</div>
+                  <div className="text-secondary-fixed-dim opacity-95">&gt; [SEC] biometric token renewed</div>
+                  <div className="text-primary-fixed-dim opacity-95">&gt; [AUTH] token valid: exp 1h</div>
+                  <div className="text-on-surface opacity-95">&gt; [TPM] pcr0 verified: match</div>
+                  <div className="text-[#34d399] opacity-95">&gt; [NET] zero-trust posture: OK</div>
+                  <div className="text-primary-fixed-dim opacity-95">&gt; [SYS] osquery sig check: match</div>
+                  <div className="text-secondary-fixed-dim opacity-95">&gt; [AUTH] session verified: sys-admin</div>
+                  <div className="text-primary-fixed-dim opacity-95">&gt; [TPM] attestation active: dev-wk-11</div>
+                  <div className="text-[#34d399] opacity-95">&gt; [NET] tunnel established: node-tx-99</div>
+                  <div className="text-on-surface opacity-95">&gt; [SYS] policy eval: strict_firewall OK</div>
+                  <div className="text-secondary-fixed-dim opacity-95">&gt; [SEC] biometric token renewed</div>
+                  <div className="text-primary-fixed-dim opacity-95">&gt; [AUTH] token valid: exp 1h</div>
+                  <div className="text-on-surface opacity-95">&gt; [TPM] pcr0 verified: match</div>
+                  <div className="text-[#34d399] opacity-95">&gt; [NET] zero-trust posture: OK</div>
+                  <div className="text-primary-fixed-dim opacity-95">&gt; [SYS] osquery sig check: match</div>
                 </div>
               </div>
 
@@ -755,7 +755,7 @@ export default function LandingPage() {
       </section>
 
       {/* 7. Trust / Privacy Chapter */}
-      <section className="max-w-container-max mx-auto px-margin-desktop relative mb-[240px] reveal">
+      <section className="max-w-container-max mx-auto px-margin-desktop relative mb-[120px] reveal">
         <div className="text-center mb-20 relative z-10">
           <h2 className="font-display-lg-mobile md:font-display-lg text-on-surface mb-6">Privacy by Design</h2>
           <p className="font-body-base text-body-base text-on-surface-variant max-w-2xl mx-auto text-lg leading-relaxed">
@@ -857,31 +857,33 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 8. FAQ Objections Accordion Section (V1 Preservation) */}
-      <section className="max-w-3xl mx-auto px-margin-mobile md:px-margin-desktop py-16 relative z-10 mb-[240px] reveal">
-        <div className="text-center mb-12">
-          <span className="font-code-label text-[13px] text-on-surface-variant tracking-wider uppercase">FAQ</span>
-          <h2 className="font-display-lg-mobile md:font-display-lg text-on-surface mt-2 mb-4">Common Objections</h2>
-        </div>
-        <div className="divide-y divide-outline-variant/30 border-t border-b border-outline-variant/30">
-          {faqData.map((item, idx) => (
-            <div key={idx} className="py-5">
-              <button 
-                onClick={() => toggleFaq(idx)}
-                className="w-full flex items-center justify-between text-left font-bold text-on-surface text-base focus:outline-none"
-              >
-                <span className="font-headline-md text-[18px]">{item.q}</span>
-                <span className={`material-symbols-outlined text-outline transform transition-transform duration-200 ${openFaq === idx ? "rotate-180" : "rotate-0"}`}>
-                  expand_more
-                </span>
-              </button>
-              {openFaq === idx && (
-                <p className="mt-3 text-sm text-on-surface-variant leading-relaxed font-normal">
-                  {item.a}
-                </p>
-              )}
-            </div>
-          ))}
+      {/* 8. FAQ Objections Accordion Section (V1 Preservation - Styled as a cohesive card) */}
+      <section className="max-w-4xl mx-auto px-margin-mobile md:px-margin-desktop py-8 relative z-10 mb-[120px] reveal">
+        <div className="unified-card p-8 md:p-12 bg-surface-container-low/60 backdrop-blur-md">
+          <div className="text-center mb-12">
+            <span className="font-code-label text-[13px] text-primary tracking-wider uppercase">FAQ</span>
+            <h2 className="font-display-lg-mobile md:font-display-lg text-on-surface mt-2 mb-4">Common Objections</h2>
+          </div>
+          <div className="divide-y divide-outline-variant/30 border-t border-b border-outline-variant/30">
+            {faqData.map((item, idx) => (
+              <div key={idx} className="py-6">
+                <button 
+                  onClick={() => toggleFaq(idx)}
+                  className="w-full flex items-center justify-between text-left font-bold text-on-surface text-[18px] font-headline-md focus:outline-none"
+                >
+                  <span className="font-headline-md text-[18px]">{item.q}</span>
+                  <span className={`material-symbols-outlined text-outline transform transition-transform duration-200 ${openFaq === idx ? "rotate-180" : "rotate-0"}`}>
+                    expand_more
+                  </span>
+                </button>
+                {openFaq === idx && (
+                  <p className="mt-4 text-sm text-on-surface-variant leading-relaxed font-normal transition-all duration-300">
+                    {item.a}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
