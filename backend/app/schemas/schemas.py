@@ -122,12 +122,16 @@ class PolicyCreate(BaseModel):
     name: str
     description: Optional[str] = None
 
+class PolicyUpdate(BaseModel):
+    rules_yaml: str
+
 class PolicyResponse(BaseModel):
     id: UUID
     organization_id: UUID
     name: str
     description: Optional[str] = None
     created_at: datetime
+    rules_yaml: str
 
     class Config:
         from_attributes = True
@@ -138,6 +142,24 @@ class PolicyVersionResponse(BaseModel):
     version_number: int
     definition_json: str
     created_by: UUID
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+# EnrollmentToken Schemas
+class EnrollmentTokenBase(BaseModel):
+    expires_at: datetime
+
+class EnrollmentTokenCreate(EnrollmentTokenBase):
+    pass
+
+class EnrollmentTokenResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    token_hash: str
+    created_by: UUID
+    expires_at: datetime
     created_at: datetime
 
     class Config:
