@@ -33,6 +33,32 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
+# Helper to fetch current user or device credentials
+def get_current_user_or_device(
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+    device_uuid: Optional[str] = Header(None),
+    x_device_token: Optional[str] = Header(None)
+):
+    if device_uuid and x_device_token:
+        device = verify_device_token(device_uuid, x_device_token, db)
+        return None, device.organization
+        
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = authorization.split(" ")[1]
+    email = security.decode_access_token(token)
+    if email is None:
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user, None
+
 # Helper to retrieve default organization ID
 def get_default_organization(db: Session) -> models.Organization:
     org = db.query(models.Organization).order_by(models.Organization.created_at.asc()).first()
@@ -163,6 +189,7 @@ def register_user(login_in: schemas.UserLogin, db: Session = Depends(get_db)):
 def register_device(device_in: schemas.DeviceRegister, enrollment_token: str = Header(...), db: Session = Depends(get_db)):
     # Validate enrollment token or fallback to default org for MVP compatibility
     org = None
+    tok = None
     if enrollment_token == "default_token" or enrollment_token == "flientsec_enroll_token_hash":
         org = get_default_organization(db)
     else:
@@ -192,7 +219,7 @@ def register_device(device_in: schemas.DeviceRegister, enrollment_token: str = H
             os_arch=device_in.os_arch,
             kernel_version=device_in.kernel_version,
             agent_version=device_in.agent_version,
-            status="ONLINE",
+            status="PENDING",
             compliance_status="UNKNOWN",
             compliance_score=100,
             device_token=dev_token,
@@ -211,6 +238,8 @@ def register_device(device_in: schemas.DeviceRegister, enrollment_token: str = H
         device.device_token = dev_token
         device.last_checkin = datetime.utcnow()
         
+    if tok:
+        db.delete(tok)
     db.commit()
     db.refresh(device)
     return {"status": "enrolled", "device_token": device.device_token}
@@ -314,6 +343,44 @@ def agent_checkin(checkrun_in: schemas.CheckRunCreate, device_uuid: str = Header
     db.refresh(check_run)
     return check_run
 
+# Enrollment Token APIs (Requires auth)
+@router.get("/enrollment-tokens", response_model=List[schemas.EnrollmentTokenResponse])
+def list_enrollment_tokens(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    memberships = [m.organization_id for m in current_user.memberships]
+    return db.query(models.EnrollmentToken).filter(models.EnrollmentToken.organization_id.in_(memberships)).all()
+
+@router.post("/enrollment-tokens", response_model=schemas.EnrollmentTokenResponse)
+def create_enrollment_token(token_in: schemas.EnrollmentTokenCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if not current_user.memberships:
+        raise HTTPException(status_code=400, detail="User is not part of any organization")
+    org_id = current_user.memberships[0].organization_id
+    
+    # Generate a secure token string
+    token_val = f"flientsec_enroll_{uuid.uuid4().hex}"
+    tok = models.EnrollmentToken(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        token_hash=token_val,
+        created_by=current_user.id,
+        expires_at=token_in.expires_at,
+        created_at=datetime.utcnow()
+    )
+    db.add(tok)
+    db.commit()
+    db.refresh(tok)
+    return tok
+
+@router.post("/enrollment-tokens/{id}/revoke", response_model=schemas.EnrollmentTokenResponse)
+def revoke_enrollment_token(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    memberships = [m.organization_id for m in current_user.memberships]
+    tok = db.query(models.EnrollmentToken).filter(models.EnrollmentToken.id == id, models.EnrollmentToken.organization_id.in_(memberships)).first()
+    if not tok:
+        raise HTTPException(status_code=404, detail="Token not found")
+    
+    db.delete(tok)
+    db.commit()
+    return tok
+
 # Dashboard APIs (Requires auth)
 @router.get("/devices", response_model=List[schemas.DeviceResponse])
 def list_devices(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -331,7 +398,7 @@ def list_devices(db: Session = Depends(get_db), current_user: models.User = Depe
     if offline_devices:
         db.commit()
 
-    return db.query(models.Device).filter(models.Device.organization_id.in_(memberships)).all()
+    return db.query(models.Device).filter(models.Device.organization_id.in_(memberships), models.Device.status != "DECOMMISSIONED").all()
 
 @router.get("/devices/{id}", response_model=schemas.DeviceResponse)
 def get_device(id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -406,8 +473,40 @@ def seed_default_policy(db: Session, admin_user: models.User) -> models.Policy:
     return policy
 
 @router.get("/policies", response_model=schemas.PolicyResponse)
-def get_policies(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+def get_policies(db: Session = Depends(get_db), auth_result = Depends(get_current_user_or_device)):
     # Returns first policy or generates default organizational workspace mapping
+    current_user, org = auth_result
+    if current_user:
+        if current_user.memberships:
+            org_id = current_user.memberships[0].organization_id
+            org = db.query(models.Organization).filter(models.Organization.id == org_id).first()
+        if not org:
+            org = get_default_organization(db)
+        
+    policy = db.query(models.Policy).filter(models.Policy.organization_id == org.id).first()
+    if not policy:
+        admin_user = db.query(models.User).filter(models.User.email == "admin@flientsec.local").first()
+        policy = seed_default_policy(db, admin_user or current_user)
+
+    # Get latest version definition and serialize to YAML
+    latest_version = db.query(models.PolicyVersion).filter(models.PolicyVersion.policy_id == policy.id).order_by(models.PolicyVersion.version_number.desc()).first()
+    if latest_version:
+        try:
+            rules_dict = json.loads(latest_version.definition_json)
+            policy.rules_yaml = yaml.dump(rules_dict, default_flow_style=False)
+        except Exception:
+            policy.rules_yaml = ""
+    else:
+        policy.rules_yaml = ""
+        
+    return policy
+
+@router.post("/policies", response_model=schemas.PolicyResponse)
+def update_policy(
+    policy_in: schemas.PolicyUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     org = None
     if current_user.memberships:
         org_id = current_user.memberships[0].organization_id
@@ -418,6 +517,29 @@ def get_policies(db: Session = Depends(get_db), current_user: models.User = Depe
     policy = db.query(models.Policy).filter(models.Policy.organization_id == org.id).first()
     if not policy:
         policy = seed_default_policy(db, current_user)
+        
+    # Validate YAML correctness
+    try:
+        rules_dict = yaml.safe_load(policy_in.rules_yaml)
+        if not isinstance(rules_dict, dict) or "checks" not in rules_dict:
+            raise HTTPException(status_code=400, detail="Policy must define a 'checks' root object")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML configuration: {str(e)}")
+        
+    last_ver = db.query(models.PolicyVersion).filter(models.PolicyVersion.policy_id == policy.id).order_by(models.PolicyVersion.version_number.desc()).first()
+    next_num = (last_ver.version_number + 1) if last_ver else 1
+    
+    new_ver = models.PolicyVersion(
+        policy_id=policy.id,
+        version_number=next_num,
+        definition_json=json.dumps(rules_dict),
+        created_by=current_user.id
+    )
+    db.add(new_ver)
+    db.commit()
+    db.refresh(new_ver)
+    
+    policy.rules_yaml = policy_in.rules_yaml
     return policy
 
 @router.get("/policies/{id}/versions", response_model=List[schemas.PolicyVersionResponse])
