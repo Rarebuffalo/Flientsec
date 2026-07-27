@@ -228,6 +228,7 @@ def register_device(device_in: schemas.DeviceRegister, enrollment_token: str = H
         db.add(device)
     else:
         # Re-register / reset token on reinstallations
+        device.organization_id = org.id
         device.hostname = device_in.hostname
         device.os_name = device_in.os_name
         device.os_version = device_in.os_version
