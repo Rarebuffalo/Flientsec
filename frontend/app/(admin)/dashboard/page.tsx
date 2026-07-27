@@ -28,26 +28,23 @@ export default function Dashboard() {
     setLoading(true)
     const loadData = async () => {
       try {
-        const loginRes = await fetch(`${apiUrl}/api/v1/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            username: "admin@flientsec.local",
-            password: "flientsec_admin_pass"
-          })
-        })
-
-        if (!loginRes.ok) {
-          throw new Error("Authentication failed")
+        const token = localStorage.getItem("flientsec_token")
+        if (!token) {
+          setError("No session active. Redirecting...")
+          return
         }
-        const tokenData = await loginRes.json()
 
         const devicesRes = await fetch(`${apiUrl}/api/v1/devices`, {
           headers: {
-            Authorization: `Bearer ${tokenData.access_token}`
+            Authorization: `Bearer ${token}`
           }
         })
         if (!devicesRes.ok) {
+          if (devicesRes.status === 401) {
+            localStorage.removeItem("flientsec_token")
+            window.location.href = "/login"
+            return
+          }
           throw new Error("Failed to load device listing")
         }
         const devicesList = await devicesRes.json()
@@ -63,23 +60,10 @@ export default function Dashboard() {
     loadData()
   }, [refreshKey, apiUrl])
 
-  const exportReport = async () => {
-    try {
-      const loginRes = await fetch(`${apiUrl}/api/v1/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          username: "admin@flientsec.local",
-          password: "flientsec_admin_pass"
-        })
-      })
-      if (!loginRes.ok) return
-      const tokenData = await loginRes.json()
-
-      window.open(`${apiUrl}/api/v1/reports/export?token=${tokenData.access_token}`, "_blank")
-    } catch (e) {
-      console.error(e)
-    }
+  const exportReport = () => {
+    const token = localStorage.getItem("flientsec_token")
+    if (!token) return
+    window.open(`${apiUrl}/api/v1/reports/export?token=${token}`, "_blank")
   }
 
   // Aggregate stats

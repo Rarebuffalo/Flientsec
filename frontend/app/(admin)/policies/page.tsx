@@ -15,8 +15,23 @@ export default function PolicyManager() {
   const fetchPolicy = async () => {
     try {
       setLoading(true)
-      const res = await fetch(`${apiUrl}/api/v1/policies`)
+      const token = localStorage.getItem("flientsec_token")
+      if (!token) {
+        setError("No session active. Redirecting...")
+        return
+      }
+
+      const res = await fetch(`${apiUrl}/api/v1/policies`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
       if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem("flientsec_token")
+          window.location.href = "/login"
+          return
+        }
         throw new Error("Failed to load policy rules from server.")
       }
       const data = await res.json()
@@ -39,23 +54,16 @@ export default function PolicyManager() {
       setSuccess(false)
       setError(null)
 
-      // Get JWT token from admin login
-      const loginRes = await fetch(`${apiUrl}/api/v1/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          username: "admin@flientsec.local",
-          password: "flientsec_admin_pass"
-        })
-      })
-      if (!loginRes.ok) throw new Error("Auth failed during policy update verification.")
-      const tokenData = await loginRes.json()
+      const token = localStorage.getItem("flientsec_token")
+      if (!token) {
+        throw new Error("Session expired. Please sign in again.")
+      }
 
       const res = await fetch(`${apiUrl}/api/v1/policies`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${tokenData.access_token}`
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({ rules_yaml: yamlContent })
       })
