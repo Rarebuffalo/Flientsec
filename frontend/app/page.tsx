@@ -140,56 +140,55 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* 3. Hero Section (Light Background, Authoritative Typography) */}
-      <section id="product" className="py-28 md:py-36">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      {/* 3. Hero Section (Light Centered Layout, Professional B2B SaaS Aesthetic) */}
+      <section id="product" className="py-20 md:py-28 bg-[#F7F9F8]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center space-y-16">
           
-          {/* Hero Left Column */}
-          <div className="lg:col-span-5 space-y-8">
-            <div className="space-y-6">
-              <h1 className="text-5xl sm:text-6xl font-black tracking-tight text-[#111827] leading-tight">
-                Stop chasing compliance screenshots. <span className="text-[#2D8C74]">Know every workstation is secure.</span>
-              </h1>
-              <p className="text-lg sm:text-xl text-[#6B7280] font-normal leading-relaxed">
-                FlientSec continuously verifies every engineering workstation against your organization's security baseline, so security teams always know what is compliant, what isn't, and exactly how to fix it ,without deploying enterprise MDM.
-              </p>
+          {/* Hero Text Content */}
+          <div className="max-w-3xl text-center space-y-6">
+            <span className="text-[11px] font-bold tracking-widest text-[#2D8C74] uppercase bg-emerald-50 border border-emerald-200/60 px-3 py-1 rounded-full">
+              Open Source Workstation Compliance
+            </span>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-black tracking-tight text-[#111827] leading-none">
+              Stop chasing compliance screenshots. <span className="block text-[#2D8C74] mt-2">Know every workstation is secure.</span>
+            </h1>
+            <p className="text-base sm:text-lg md:text-xl text-[#6B7280] font-normal leading-relaxed">
+              FlientSec continuously verifies every engineering workstation against your organization's security baseline. Know what is compliant, what is not, and exactly how to remediate drifts—without deploying intrusive MDM profiles.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+              <a 
+                href="#cta" 
+                className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 bg-[#2D8C74] hover:bg-[#12372A] text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+              >
+                Request Early Access
+              </a>
+              <a 
+                href="/dashboard" 
+                className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 border border-slate-200 hover:bg-slate-50 text-[#6B7280] text-xs font-semibold rounded-lg transition-colors"
+              >
+                See Documentation
+              </a>
             </div>
 
-            <div className="space-y-6">
-              <div className="flex flex-row items-center gap-4">
-                <a 
-                  href="#cta" 
-                  className="inline-flex items-center justify-center px-6 py-3.5 bg-[#2D8C74] hover:bg-[#12372A] text-white text-xs font-bold rounded transition-colors shadow-sm"
-                >
-                  Request Early Access
-                </a>
-                <a 
-                  href="/dashboard" 
-                  className="inline-flex items-center justify-center px-6 py-3.5 border border-slate-200 hover:bg-slate-50 text-[#6B7280] text-xs font-semibold rounded transition-colors"
-                >
-                  See Documentation
-                </a>
+            {/* Styled copyable terminal widget */}
+            <div className="mx-auto bg-[#111827] border border-slate-800 rounded-lg p-3 max-w-sm flex items-center justify-between font-mono text-[10px] mt-6 shadow-sm">
+              <div className="flex items-center space-x-2 text-slate-400 select-all overflow-hidden truncate mr-4">
+                <span className="text-emerald-500 font-bold">$</span>
+                <span className="truncate text-slate-350">curl -fsSL https://flientsec.dev/install.sh | bash</span>
               </div>
-
-              {/* Styled copyable terminal widget */}
-              <div className="bg-[#111827] border border-slate-800 rounded p-3 max-w-sm flex items-center justify-between font-mono text-[10px]">
-                <div className="flex items-center space-x-2 text-slate-400 select-all overflow-hidden truncate mr-4">
-                  <span className="text-emerald-500 font-bold">$</span>
-                  <span className="truncate text-slate-350">curl -fsSL https://flientsec.dev/install.sh | bash</span>
-                </div>
-                <button 
-                  onClick={copyInstallerCommand}
-                  className="flex-shrink-0 p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-                  title="Copy command"
-                >
-                  {copiedCmd ? <span className="text-[9px] text-emerald-400 font-bold">Copied!</span> : <Clipboard className="h-4 w-4" />}
-                </button>
-              </div>
+              <button 
+                onClick={copyInstallerCommand}
+                className="flex-shrink-0 p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                title="Copy command"
+              >
+                {copiedCmd ? <span className="text-[9px] text-emerald-400 font-bold">Copied!</span> : <Clipboard className="h-4 w-4" />}
+              </button>
             </div>
           </div>
 
-          {/* Hero Right Column - Fully-Fledged Zoomed Interactive SaaS Dashboard Mockup */}
-          <div className="lg:col-span-7">
+          {/* Hero Zoomed Interactive SaaS Dashboard Mockup */}
+          <div className="w-full max-w-5xl">
             <div className="bg-white border border-slate-200 rounded-xl shadow-premium overflow-hidden font-sans flex h-[500px] w-full">
               
               {/* Sidebar Panel */}
@@ -429,11 +428,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 5. Problem Section (Deep Green Background #12372A, Infographic Style, No Card Outlines) */}
-      <section className="py-28 bg-[#12372A] text-white">
+      {/* 5. Problem Section (Deep Green Background #12372A, Infographic Style) */}
+      <section className="py-20 md:py-28 bg-[#12372A] text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-20 space-y-4">
-            <span className="text-[10px] font-bold tracking-widest text-emerald-300 uppercase">
+            <span className="text-[11px] font-bold tracking-widest text-emerald-300 uppercase bg-emerald-950/40 border border-emerald-800/60 px-3 py-1 rounded-full inline-block">
               The Problem
             </span>
             <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">
@@ -441,42 +440,70 @@ export default function LandingPage() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-16 max-w-4xl mx-auto items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto items-stretch">
             
             {/* Manual Audit Pipeline */}
-            <div className="space-y-6">
-              <span className="text-xs font-bold text-rose-300 uppercase tracking-widest">Manual Audits</span>
-              <p className="text-base text-emerald-100/60 leading-relaxed font-semibold">
-                IT departments chasing engineers over slack to grab screenshots of configuration properties.
-              </p>
+            <div className="border border-rose-950/80 bg-rose-950/15 rounded-xl p-8 space-y-6 flex flex-col justify-between">
+              <div className="space-y-4">
+                <span className="text-xs font-bold text-rose-300 uppercase tracking-widest">Manual Audits</span>
+                <p className="text-sm text-rose-100/70 leading-relaxed font-semibold">
+                  IT departments chasing engineers over slack to grab screenshots of configuration properties.
+                </p>
+              </div>
               
               {/* Infographic Steps */}
-              <div className="space-y-3 font-mono text-xs text-rose-300 font-bold">
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-rose-500"></span><span>1. Send Slack compliance message</span></div>
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-rose-500"></span><span>2. Developer captures workstation screenshot</span></div>
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-rose-500"></span><span>3. Upload screen file to spreadsheet</span></div>
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-rose-500"></span><span>4. Auditor inspects logs manually</span></div>
+              <div className="space-y-3.5 font-mono text-xs text-rose-350 text-rose-300 font-medium pl-2 border-l border-rose-900/60 my-4">
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-rose-950 text-rose-450 border border-rose-850 text-[9px] flex items-center justify-center font-bold flex-shrink-0">1</span>
+                  <span>Send Slack compliance message</span>
+                </div>
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-rose-950 text-rose-450 border border-rose-850 text-[9px] flex items-center justify-center font-bold flex-shrink-0">2</span>
+                  <span>Developer captures workstation screenshot</span>
+                </div>
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-rose-950 text-rose-450 border border-rose-850 text-[9px] flex items-center justify-center font-bold flex-shrink-0">3</span>
+                  <span>Upload screen file to spreadsheet</span>
+                </div>
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-rose-950 text-rose-450 border border-rose-850 text-[9px] flex items-center justify-center font-bold flex-shrink-0">4</span>
+                  <span>Auditor inspects logs manually</span>
+                </div>
               </div>
-              <div className="pt-4 border-t border-emerald-900/60 font-mono text-xs font-bold text-rose-450 text-rose-400">
+              <div className="pt-4 border-t border-rose-900/40 font-mono text-xs font-semibold text-rose-400">
                 Hours of manual verification
               </div>
             </div>
 
             {/* Continuous Posture Pipeline */}
-            <div className="space-y-6">
-              <span className="text-xs font-bold text-emerald-300 uppercase tracking-widest">FlientSec</span>
-              <p className="text-base text-emerald-100/75 leading-relaxed font-semibold">
-                Always-active background client evaluating rules locally on workstations and reporting telemetry automatically.
-              </p>
+            <div className="border border-emerald-900 bg-emerald-950/15 rounded-xl p-8 space-y-6 flex flex-col justify-between">
+              <div className="space-y-4">
+                <span className="text-xs font-bold text-emerald-300 uppercase tracking-widest">FlientSec</span>
+                <p className="text-sm text-emerald-100/75 leading-relaxed font-semibold">
+                  Always-active background client evaluating rules locally on workstations and reporting telemetry automatically.
+                </p>
+              </div>
 
               {/* Infographic Steps */}
-              <div className="space-y-3 font-mono text-xs text-emerald-300 font-bold">
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-[#2D8C74]"></span><span>1. Run Go verification agent locally</span></div>
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-[#2D8C74]"></span><span>2. Evaluate policy configurations against YAML rules</span></div>
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-[#2D8C74]"></span><span>3. Securely transmit check-in telemetry</span></div>
-                <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-[#2D8C74]"></span><span>4. Evidence reports automatically audit-ready</span></div>
+              <div className="space-y-3.5 font-mono text-xs text-emerald-350 text-emerald-300 font-medium pl-2 border-l border-emerald-800/60 my-4">
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-emerald-950 text-emerald-350 border border-[#2D8C74]/50 text-[9px] flex items-center justify-center font-bold flex-shrink-0">1</span>
+                  <span>Run Go verification agent locally</span>
+                </div>
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-emerald-950 text-emerald-350 border border-[#2D8C74]/50 text-[9px] flex items-center justify-center font-bold flex-shrink-0">2</span>
+                  <span>Evaluate policy configurations against YAML rules</span>
+                </div>
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-emerald-950 text-emerald-350 border border-[#2D8C74]/50 text-[9px] flex items-center justify-center font-bold flex-shrink-0">3</span>
+                  <span>Securely transmit check-in telemetry</span>
+                </div>
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-4 w-4 rounded-full bg-emerald-950 text-emerald-350 border border-[#2D8C74]/50 text-[9px] flex items-center justify-center font-bold flex-shrink-0">4</span>
+                  <span>Evidence reports automatically audit-ready</span>
+                </div>
               </div>
-              <div className="pt-4 border-t border-emerald-900/60 font-mono text-xs font-bold text-emerald-350 text-emerald-300">
+              <div className="pt-4 border-t border-emerald-850/40 font-mono text-xs font-semibold text-emerald-300">
                 Automated verification
               </div>
             </div>
@@ -506,71 +533,76 @@ export default function LandingPage() {
               Workstation security verification, automated
             </h3>
           </div>
-
           {/* Asymmetric features layout columns */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
             
             {/* Card 1: Checklist format */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2.5">
-                <Cpu className="h-5 w-5 text-[#2D8C74]" />
-                <h4 className="text-lg font-bold text-[#111827]">Continuous Verification</h4>
+            <div className="border border-slate-200 bg-[#F7F9F8]/50 rounded-xl p-8 space-y-6 shadow-sm flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2.5">
+                  <Cpu className="h-5 w-5 text-[#2D8C74]" />
+                  <h4 className="text-lg font-bold text-[#111827]">Continuous Verification</h4>
+                </div>
+                <p className="text-sm text-[#6B7280] leading-relaxed">
+                  Verify system security baselines continuously in the background without user intervention.
+                </p>
               </div>
-              <p className="text-sm text-[#6B7280] leading-relaxed font-semibold">
-                Verify system security baselines continuously in the background.
-              </p>
-              <div className="space-y-2.5 text-sm font-semibold text-[#111827] pt-3 border-t border-slate-200/60">
+              <div className="space-y-2.5 text-sm font-semibold text-slate-700 pt-4 border-t border-slate-200">
                 <div className="flex items-center space-x-2">
-                  <Check className="h-4.5 w-4.5 text-[#2D8C74]" />
-                  <span>Firewall ruleset status (UFW, firewalld, iptables)</span>
+                  <Check className="h-4 w-4 text-[#2D8C74]" />
+                  <span>Firewall status (UFW, firewalld, iptables)</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Check className="h-4.5 w-4.5 text-[#2D8C74]" />
+                  <Check className="h-4 w-4 text-[#2D8C74]" />
                   <span>Disk encryption mount analysis (lsblk)</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Check className="h-4.5 w-4.5 text-[#2D8C74]" />
+                  <Check className="h-4 w-4 text-[#2D8C74]" />
                   <span>System package manager upgrade alerts</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Check className="h-4.5 w-4.5 text-[#2D8C74]" />
+                  <Check className="h-4 w-4 text-[#2D8C74]" />
                   <span>Local compiler runtime environment versions</span>
                 </div>
               </div>
             </div>
-
+ 
             {/* Card 2: Diagram layout */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2.5">
-                <Code className="h-5 w-5 text-[#2D8C74]" />
-                <h4 className="text-lg font-bold text-[#111827]">Policy as Code</h4>
+            <div className="border border-slate-200 bg-[#F7F9F8]/50 rounded-xl p-8 space-y-6 shadow-sm flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2.5">
+                  <Code className="h-5 w-5 text-[#2D8C74]" />
+                  <h4 className="text-lg font-bold text-[#111827]">Policy as Code</h4>
+                </div>
+                <p className="text-sm text-[#6B7280] leading-relaxed">
+                  Define engineering and compliance rulesets in a single git-controlled YAML configuration.
+                </p>
               </div>
-              <p className="text-sm text-[#6B7280] leading-relaxed font-semibold">
-                Define rulesets in a single git-controlled YAML configuration.
-              </p>
-              <div className="pt-4 border-t border-slate-200/60 flex items-center justify-between font-mono text-xs text-[#6B7280]">
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between font-mono text-xs text-[#6B7280]">
                 <div className="space-y-1.5">
                   <p className="font-bold text-[#111827]">policy.yaml</p>
                   <p>firewall: required: true</p>
                   <p>disk_encryption: true</p>
                 </div>
                 <ArrowRight className="h-5 w-5 text-slate-350" />
-                <div className="space-y-1.5 bg-emerald-50 text-emerald-800 p-3 rounded-lg font-bold">
+                <div className="space-y-1.5 bg-emerald-50 text-[#047857] p-3 rounded-lg font-bold">
                   <p>Evaluation Status</p>
                   <p className="text-[#2D8C74]">✔ Compliant (100)</p>
                 </div>
               </div>
             </div>
-
+ 
             {/* Card 3: Mini-table mockup */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2.5">
-                <Activity className="h-5 w-5 text-[#2D8C74]" />
-                <h4 className="text-lg font-bold text-[#111827]">Fleet Health Overview</h4>
+            <div className="border border-slate-200 bg-[#F7F9F8]/50 rounded-xl p-8 space-y-6 shadow-sm flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2.5">
+                  <Activity className="h-5 w-5 text-[#2D8C74]" />
+                  <h4 className="text-lg font-bold text-[#111827]">Fleet Health Overview</h4>
+                </div>
+                <p className="text-sm text-[#6B7280] leading-relaxed">
+                  Get instant visibility into overall workstation compliance levels across dev teams.
+                </p>
               </div>
-              <p className="text-sm text-[#6B7280] leading-relaxed font-semibold">
-                Get instant visibility into overall workstation compliance levels.
-              </p>
               <div className="border border-slate-200 bg-white rounded-lg overflow-hidden font-mono text-[10px] leading-none shadow-sm">
                 <div className="bg-slate-50 p-3 border-b border-slate-200 flex justify-between font-bold text-[#111827]">
                   <span>Device Hostname</span>
@@ -586,16 +618,18 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-
+ 
             {/* Card 4: Timeline format */}
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2.5">
-                <Clock className="h-5 w-5 text-[#2D8C74]" />
-                <h4 className="text-lg font-bold text-[#111827]">Audit Evidence Logs</h4>
+            <div className="border border-slate-200 bg-[#F7F9F8]/50 rounded-xl p-8 space-y-6 shadow-sm flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex items-center space-x-2.5">
+                  <Clock className="h-5 w-5 text-[#2D8C74]" />
+                  <h4 className="text-lg font-bold text-[#111827]">Audit Evidence Logs</h4>
+                </div>
+                <p className="text-sm text-[#6B7280] leading-relaxed">
+                  Generate history logs, audit-ready compliance checks, and exports.
+                </p>
               </div>
-              <p className="text-sm text-[#6B7280] leading-relaxed font-semibold">
-                Generate compliance documentation ready to pass security audits.
-              </p>
               <div className="space-y-3 border-l-2 border-slate-200 pl-5 text-[10px] font-mono">
                 <div>
                   <p className="font-bold text-[#111827]">09:00 AM</p>
@@ -607,16 +641,16 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-
           </div>
         </div>
       </section>
-
       {/* 8. Technical Architecture Section (Light Background, Animated packet SVG) */}
       <section id="architecture" className="py-20 bg-white border-t border-slate-200/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="space-y-4">
-            <span className="text-[10px] font-bold tracking-widest text-[#2D8C74] uppercase">Engineering Specs</span>
+            <span className="text-[11px] font-bold tracking-widest text-[#2D8C74] uppercase bg-emerald-50 border border-emerald-200/60 px-3 py-1 rounded-full inline-block">
+              Engineering Specs
+            </span>
             <h3 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#111827] tracking-tight">
               Symmetric local policy evaluation
             </h3>
@@ -689,7 +723,7 @@ export default function LandingPage() {
 
             {/* Local Callout - Privacy Guarantee Card */}
             <div className="w-full md:w-80 flex-shrink-0">
-              <div className="p-6 border-2 border-emerald-500/10 bg-emerald-500/5 rounded-lg">
+              <div className="p-6 border border-slate-200 bg-white rounded-xl shadow-sm">
                 <h4 className="font-bold text-[#111827] text-sm flex items-center space-x-2">
                   <ShieldCheck className="h-5 w-5 text-[#2D8C74]" />
                   <span>Privacy guarantee</span>
