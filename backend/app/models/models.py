@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -161,10 +161,23 @@ class Policy(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    active_version_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("policy_versions.id", use_alter=True, name="fk_policy_active_version_id"),
+        nullable=True
+    )
 
     organization = relationship("Organization", back_populates="policies")
     versions = relationship(
-        "PolicyVersion", back_populates="policy", cascade="all, delete-orphan"
+        "PolicyVersion",
+        back_populates="policy",
+        cascade="all, delete-orphan",
+        foreign_keys="PolicyVersion.policy_id"
+    )
+    active_version = relationship(
+        "PolicyVersion",
+        foreign_keys=[active_version_id],
+        post_update=True
     )
 
 
@@ -177,12 +190,54 @@ class PolicyVersion(Base):
     )
     version_number = Column(Integer, nullable=False)
     definition_json = Column(String, nullable=False)
+    status = Column(String, default="DRAFT", nullable=False)
+    content = Column(String, nullable=True)
+    content_hash = Column(String, nullable=True)
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    policy = relationship("Policy", back_populates="versions")
+    policy = relationship(
+        "Policy",
+        back_populates="versions",
+        foreign_keys=[policy_id]
+    )
+
+
+class PolicyAssignment(Base):
+    __tablename__ = "policy_assignments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+    )
+    policy_id = Column(
+        UUID(as_uuid=True), ForeignKey("policies.id"), nullable=False
+    )
+    device_id = Column(
+        UUID(as_uuid=True), ForeignKey("devices.id"), nullable=True
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    organization = relationship("Organization")
+    policy = relationship("Policy")
+    device = relationship("Device")
+
+    __table_args__ = (
+        Index(
+            "uq_org_default_assignment",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("device_id IS NULL"),
+        ),
+        Index(
+            "uq_device_assignment",
+            "device_id",
+            unique=True,
+            postgresql_where=text("device_id IS NOT NULL"),
+        ),
+    )
 
 
 class CheckRun(Base):
@@ -195,8 +250,13 @@ class CheckRun(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     status = Column(String, nullable=False)  # PASS / FAIL / WARN
     score = Column(Integer, nullable=False)  # 0 to 100
+    policy_version_id = Column(
+        UUID(as_uuid=True), ForeignKey("policy_versions.id"), nullable=True
+    )
+    content_hash = Column(String, nullable=True)
 
     device = relationship("Device", back_populates="check_runs")
+    policy_version = relationship("PolicyVersion")
 
 
 class Finding(Base):
@@ -206,14 +266,33 @@ class Finding(Base):
     device_id = Column(
         UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False
     )
+    policy_id = Column(
+        UUID(as_uuid=True), ForeignKey("policies.id"), nullable=True
+    )
+    rule_id = Column(String, nullable=False)
     check_name = Column(String, nullable=False)
     severity = Column(String, default="medium")  # high, medium, low
-    status = Column(String, default="Open")  # Open, Acknowledged, Resolved
-    reason = Column(String, nullable=False)
+    status = Column(String, default="OPEN", nullable=False)  # OPEN, RESOLVED
+    reason = Column(String, nullable=True)
+    resolution_reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    first_detected_at = Column(DateTime, default=datetime.utcnow)
+    last_detected_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
 
     device = relationship("Device", back_populates="findings")
+    policy = relationship("Policy")
+
+    __table_args__ = (
+        Index(
+            "uq_active_finding",
+            "device_id",
+            "policy_id",
+            "rule_id",
+            unique=True,
+            postgresql_where=text("status = 'OPEN'"),
+        ),
+    )
 
 
 class Event(Base):
@@ -231,3 +310,4 @@ class Event(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="events")
+
