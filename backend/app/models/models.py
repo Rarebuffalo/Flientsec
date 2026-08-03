@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Index, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from app.core.database import Base
 
 
@@ -203,6 +203,20 @@ class PolicyVersion(Base):
         back_populates="versions",
         foreign_keys=[policy_id]
     )
+
+    @validates("definition_json", "content", "content_hash")
+    def validate_immutability(self, key, value):
+        from sqlalchemy.orm.attributes import get_history
+        status_hist = get_history(self, "status")
+        was_published = False
+        if status_hist.deleted and status_hist.deleted[0] == "PUBLISHED":
+            was_published = True
+        elif not status_hist.has_changes() and self.status == "PUBLISHED":
+            was_published = True
+
+        if was_published:
+            raise ValueError("Cannot modify a PUBLISHED policy version")
+        return value
 
 
 class PolicyAssignment(Base):
