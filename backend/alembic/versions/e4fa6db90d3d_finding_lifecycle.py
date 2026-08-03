@@ -26,6 +26,7 @@ def upgrade() -> None:
     op.add_column('findings', sa.Column('resolution_reason', sa.String(), nullable=True))
     op.add_column('findings', sa.Column('first_detected_at', sa.DateTime(), server_default=sa.func.now(), nullable=False))
     op.add_column('findings', sa.Column('last_detected_at', sa.DateTime(), server_default=sa.func.now(), nullable=False))
+    op.add_column('findings', sa.Column('resolved_at', sa.DateTime(), nullable=True))
 
     # 2. Update existing status values to uppercase OPEN/RESOLVED
     op.execute("UPDATE findings SET status = 'OPEN' WHERE status = 'Open' OR status IS NULL")
@@ -58,6 +59,7 @@ def downgrade() -> None:
     op.drop_constraint('fk_findings_policy_id', 'findings', type_='foreignkey')
     op.alter_column('findings', 'reason', nullable=False)
     
+    op.drop_column('findings', 'resolved_at')
     op.drop_column('findings', 'last_detected_at')
     op.drop_column('findings', 'first_detected_at')
     op.drop_column('findings', 'resolution_reason')
