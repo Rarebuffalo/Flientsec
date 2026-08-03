@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Index, text
+from sqlalchemy import (
+    Column, String, DateTime, ForeignKey, Integer, Index, text
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, validates
 from app.core.database import Base
@@ -163,7 +165,11 @@ class Policy(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     active_version_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("policy_versions.id", use_alter=True, name="fk_policy_active_version_id"),
+        ForeignKey(
+            "policy_versions.id",
+            use_alter=True,
+            name="fk_policy_active_version_id"
+        ),
         nullable=True
     )
 
@@ -324,4 +330,3 @@ class Event(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="events")
-
