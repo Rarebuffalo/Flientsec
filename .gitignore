@@ -33,3 +33,6 @@ backend/.pytest_cache/
 .env
 postgres_data/
 docker-compose.override.yml
+
+#new design file
+new-design/
