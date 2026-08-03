@@ -153,6 +153,45 @@ def test_finding_uniqueness_constraint(db):
     db.add(f4)
     db.commit()  # Should succeed cleanly
 
+    # Verify that both RESOLVED findings exist in database
+    assert db.query(models.Finding).filter(models.Finding.status == "RESOLVED").count() == 2
+
+
+def test_finding_resolved_at_field():
+    # Verify resolved_at attribute is present on the model
+    assert hasattr(models.Finding, "resolved_at")
+
+
+def test_published_policy_version_immutability(db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy A")
+    db.add(policy)
+    db.commit()
+
+    v = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json='{"rules": []}',
+        content='{"rules": []}',
+        status="PUBLISHED",
+        content_hash="dummy_hash",
+        created_by=user.id
+    )
+    db.add(v)
+    db.commit()
+
+    # Attempt to modify definition_json after publication should raise ValueError
+    with pytest.raises(ValueError, match="Cannot modify a PUBLISHED policy version"):
+        v.definition_json = '{"rules": [{"id": "new"}]}'
+    
+    # Attempt to modify content after publication should raise ValueError
+    with pytest.raises(ValueError, match="Cannot modify a PUBLISHED policy version"):
+        v.content = '{"rules": [{"id": "new"}]}'
+    
+    # Stored content_hash remains unchanged
+    assert v.content_hash == "dummy_hash"
+
 
 def test_policy_assignments_uniqueness(db):
     org, user = create_org_and_user(db)
