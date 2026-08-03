@@ -5,17 +5,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Set test environment database URL before importing app settings
-TEST_DATABASE_URL = "postgresql://flientsec:flientsec_dev_pass@localhost:5433/flientsec_test"
+TEST_DATABASE_URL = (
+    "postgresql://flientsec:flientsec_dev_pass@localhost:5433/flientsec_test"
+)
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
-from app.main import app
-from app.core.database import Base, get_db
+from app.main import app  # noqa: E402
+from app.core.database import Base, get_db  # noqa: E402
 
-from alembic.config import Config
-from alembic import command
+from alembic.config import Config  # noqa: E402
+from alembic import command  # noqa: E402
 
 engine = create_engine(TEST_DATABASE_URL)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingSessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, bind=engine
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -36,9 +40,9 @@ def db():
     connection = engine.connect()
     transaction = connection.begin()
     session = TestingSessionLocal(bind=connection)
-    
+
     yield session
-    
+
     session.close()
     transaction.rollback()
     connection.close()
@@ -51,7 +55,7 @@ def client(db):
             yield db
         finally:
             pass
-            
+
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
