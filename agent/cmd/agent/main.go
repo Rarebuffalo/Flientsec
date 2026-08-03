@@ -148,7 +148,9 @@ func getOrGenerateUUID(filePath string) (string, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
 	if dir != "." {
-		os.MkdirAll(dir, 0755)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", err
+		}
 	}
 
 	err = os.WriteFile(filePath, []byte(uuidStr), 0600)
