@@ -3,14 +3,17 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
+
 # Auth Schemas
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+
 class Token(BaseModel):
     access_token: str
     token_type: str
+
 
 class UserResponse(BaseModel):
     id: UUID
@@ -19,6 +22,7 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class MemberResponse(BaseModel):
     id: UUID
@@ -30,6 +34,7 @@ class MemberResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # Organization Schemas
 class OrganizationResponse(BaseModel):
     id: UUID
@@ -38,6 +43,7 @@ class OrganizationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 # Device Schemas
 class DeviceRegister(BaseModel):
@@ -48,6 +54,7 @@ class DeviceRegister(BaseModel):
     os_arch: str
     kernel_version: str
     agent_version: str
+
 
 class DeviceResponse(BaseModel):
     id: UUID
@@ -68,12 +75,14 @@ class DeviceResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # Finding Schemas
 class FindingCreate(BaseModel):
     check_name: str
     severity: str
     status: str
     reason: str
+
 
 class FindingResponse(BaseModel):
     id: UUID
@@ -87,6 +96,7 @@ class FindingResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # CheckRun Schemas
 class DeviceFindingResponse(BaseModel):
     id: UUID
@@ -98,12 +108,14 @@ class DeviceFindingResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class CheckRunCreate(BaseModel):
     id: UUID
     status: str
     score: int
     timestamp: datetime
     findings: List[FindingCreate]
+
 
 class CheckRunResponse(BaseModel):
     id: UUID
@@ -115,6 +127,7 @@ class CheckRunResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 # Event Schemas
 class EventResponse(BaseModel):
@@ -128,13 +141,16 @@ class EventResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # Policy Schemas
 class PolicyCreate(BaseModel):
     name: str
     description: Optional[str] = None
 
+
 class PolicyUpdate(BaseModel):
     rules_yaml: str
+
 
 class PolicyResponse(BaseModel):
     id: UUID
@@ -147,6 +163,7 @@ class PolicyResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class PolicyVersionResponse(BaseModel):
     id: UUID
     policy_id: UUID
@@ -158,12 +175,15 @@ class PolicyVersionResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # EnrollmentToken Schemas
 class EnrollmentTokenBase(BaseModel):
     expires_at: datetime
 
+
 class EnrollmentTokenCreate(EnrollmentTokenBase):
     pass
+
 
 class EnrollmentTokenResponse(BaseModel):
     id: UUID

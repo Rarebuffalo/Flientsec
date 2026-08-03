@@ -11,6 +11,7 @@ engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -18,8 +19,10 @@ def get_db():
     finally:
         db.close()
 
+
 def init_db():
     # Import models to register metadata
-    from app.models.models import Organization, User, Member, Session, EnrollmentToken, Device, DeviceGroup, Policy, PolicyVersion, CheckRun, Finding, Event
-    # Base.metadata.drop_all(bind=engine) # Commented out after initial schema sync to prevent data loss on restarts
+    pass
+    # Base.metadata.drop_all(bind=engine) # Commented out after initial
+    # schema sync to prevent data loss on restarts
     Base.metadata.create_all(bind=engine)
