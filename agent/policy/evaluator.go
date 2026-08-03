@@ -11,47 +11,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Policy struct {
-	Checks struct {
-		Firewall struct {
-			Enabled  bool   `yaml:"enabled"`
-			Required bool   `yaml:"required"`
-			Severity string `yaml:"severity"`
-		} `yaml:"firewall"`
-		Encryption struct {
-			Enabled  bool   `yaml:"enabled"`
-			Required bool   `yaml:"required"`
-			Severity string `yaml:"severity"`
-		} `yaml:"encryption"`
-		SSH struct {
-			Enabled  bool   `yaml:"enabled"`
-			Required bool   `yaml:"required"`
-			Severity string `yaml:"severity"`
-		} `yaml:"ssh"`
-		Updates struct {
-			Enabled  bool   `yaml:"enabled"`
-			Required bool   `yaml:"required"`
-			Severity string `yaml:"severity"`
-		} `yaml:"updates"`
-		Node struct {
-			Enabled  bool   `yaml:"enabled"`
-			Required bool   `yaml:"required"`
-			Minimum  string `yaml:"minimum"`
-			Severity string `yaml:"severity"`
-		} `yaml:"node"`
-		Docker struct {
-			Enabled  bool   `yaml:"enabled"`
-			Required bool   `yaml:"required"`
-			Minimum  string `yaml:"minimum"`
-			Severity string `yaml:"severity"`
-		} `yaml:"docker"`
-	} `yaml:"checks"`
+type Rule struct {
+	ID          string      `yaml:"id" json:"id"`
+	Check       string      `yaml:"check" json:"check"`
+	Description string      `yaml:"description" json:"description"`
+	Severity    string      `yaml:"severity" json:"severity"`
+	Operator    string      `yaml:"operator" json:"operator"`
+	Expected    interface{} `yaml:"expected" json:"expected"`
 }
 
+type SchemaV1Policy struct {
+	SchemaVersion int `yaml:"schema_version" json:"schema_version"`
+	Metadata      struct {
+		Name        string `yaml:"name" json:"name"`
+		Description string `yaml:"description" json:"description"`
+	} `yaml:"metadata" json:"metadata"`
+	Rules []Rule `yaml:"rules" json:"rules"`
+}
+
+// Retain Policy alias for API consumers
+type Policy SchemaV1Policy
+
 type Finding struct {
-	RuleName string `json:"rule_name"`
-	Status   string `json:"status"` // FAIL / WARN
-	Message  string `json:"message"`
+	RuleName string `json:"rule_name"` // rule.id (stable rule identity)
+	Status   string `json:"status"`    // FAIL / WARN
+	Message  string `json:"message"`   // rule.description
 	Severity string `json:"severity"`
 }
 
@@ -63,165 +47,214 @@ type CheckRunPayload struct {
 	Findings  []Finding `json:"findings"`
 }
 
-// Evaluate matches raw check results against the active YAML policy configuration
+// Evaluate matches raw check results against the active YAML policy configuration conforming to Schema v1
 func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, runID string) (CheckRunPayload, error) {
-	var pol Policy
+	var pol SchemaV1Policy
 	// Load defaults if policyData is empty
 	if len(policyData) == 0 {
-		pol = getDefaultPolicy()
+		pol = getDefaultSchemaV1Policy()
 	} else {
 		err := yaml.Unmarshal(policyData, &pol)
 		if err != nil {
 			return CheckRunPayload{}, err
+		}
+		// Strict validations:
+		// 1. Verify schema_version is exactly 1
+		if pol.SchemaVersion != 1 {
+			return CheckRunPayload{}, fmt.Errorf("unsupported schema version: %d", pol.SchemaVersion)
+		}
+		// 2. Validate malformed rules explicitly
+		for _, rule := range pol.Rules {
+			if rule.ID == "" {
+				return CheckRunPayload{}, fmt.Errorf("malformed rule: missing 'id'")
+			}
+			if rule.Check == "" {
+				return CheckRunPayload{}, fmt.Errorf("malformed rule: missing 'check' in rule %s", rule.ID)
+			}
+			if rule.Operator == "" {
+				return CheckRunPayload{}, fmt.Errorf("malformed rule: missing 'operator' in rule %s", rule.ID)
+			}
+			if rule.Description == "" {
+				return CheckRunPayload{}, fmt.Errorf("malformed rule: missing 'description' in rule %s", rule.ID)
+			}
+			if rule.Expected == nil {
+				return CheckRunPayload{}, fmt.Errorf("malformed rule: missing 'expected' in rule %s", rule.ID)
+			}
+			if rule.Operator != "equals" && rule.Operator != "semver_gte" {
+				return CheckRunPayload{}, fmt.Errorf("malformed rule: unsupported operator '%s' in rule %s", rule.Operator, rule.ID)
+			}
 		}
 	}
 
 	findings := []Finding{}
 	score := 100
 
-	// 1. Evaluate Firewall
-	if pol.Checks.Firewall.Enabled {
-		if res, ok := checkResults["firewall"]; ok && res.Success {
-			active, _ := res.Data["active"].(bool)
-			if pol.Checks.Firewall.Required && !active {
-				findings = append(findings, Finding{
-					RuleName: "firewall",
-					Status:   "FAIL",
-					Message:  "System firewall is disabled. Turn on your firewall using 'sudo ufw enable', 'sudo systemctl start firewalld', or system preferences.",
-					Severity: normalizeSeverity(pol.Checks.Firewall.Severity),
-				})
-				score -= getPenalty(pol.Checks.Firewall.Severity)
-			}
-		}
-	}
-
-	// 2. Evaluate Encryption
-	if pol.Checks.Encryption.Enabled {
-		if res, ok := checkResults["encryption"]; ok && res.Success {
-			status, _ := res.Data["status"].(string)
-			if pol.Checks.Encryption.Required && status != "Encrypted" {
-				findings = append(findings, Finding{
-					RuleName: "encryption",
-					Status:   "FAIL",
-					Message:  "Root filesystem is not encrypted. Secure boot and drive encryption (LUKS/dm-crypt) are required.",
-					Severity: normalizeSeverity(pol.Checks.Encryption.Severity),
-				})
-				score -= getPenalty(pol.Checks.Encryption.Severity)
-			}
-		}
-	}
-
-	// 3. Evaluate SSH
-	if pol.Checks.SSH.Enabled {
-		if res, ok := checkResults["ssh"]; ok && res.Success {
-			active, _ := res.Data["active"].(bool)
-			// Required = true means SSH daemon must be active.
-			// Required = false means SSH daemon must be inactive/disabled (hardening).
-			if pol.Checks.SSH.Required && !active {
-				findings = append(findings, Finding{
-					RuleName: "ssh",
-					Status:   "FAIL",
-					Message:  "SSH daemon is disabled but organization rules require it to be active.",
-					Severity: normalizeSeverity(pol.Checks.SSH.Severity),
-				})
-				score -= getPenalty(pol.Checks.SSH.Severity)
-			} else if !pol.Checks.SSH.Required && active {
-				findings = append(findings, Finding{
-					RuleName: "ssh",
-					Status:   "FAIL",
-					Message:  "SSH daemon is active. Disable it via 'sudo systemctl disable --now sshd' to minimize network attack surface.",
-					Severity: normalizeSeverity(pol.Checks.SSH.Severity),
-				})
-				score -= getPenalty(pol.Checks.SSH.Severity)
-			}
-		}
-	}
-
-	// 4. Evaluate Updates
-	if pol.Checks.Updates.Enabled {
-		if res, ok := checkResults["updates"]; ok && res.Success {
-			pending, _ := res.Data["pending_count"].(int)
-			// If there are pending updates, trigger a finding
-			if pol.Checks.Updates.Required && pending > 0 {
-				findings = append(findings, Finding{
-					RuleName: "updates",
-					Status:   "WARN",
-					Message:  fmt.Sprintf("Your system has %d pending package updates. Run your package manager upgrade command.", pending),
-					Severity: normalizeSeverity(pol.Checks.Updates.Severity),
-				})
-				score -= getPenalty(pol.Checks.Updates.Severity)
-			}
-		}
-	}
-
-	// 5. Evaluate Runtimes (Node & Docker)
-	if res, ok := checkResults["runtime"]; ok && res.Success {
-		versions, _ := res.Data["versions"].(map[string]interface{})
-		if versions != nil {
-			// Evaluate Node
-			if pol.Checks.Node.Enabled {
-				nodeVer, _ := versions["node"].(string)
-				if nodeVer == "not_installed" {
-					if pol.Checks.Node.Required {
-						findings = append(findings, Finding{
-							RuleName: "node",
-							Status:   "FAIL",
-							Message:  fmt.Sprintf("Node.js is not installed. Node.js >= %s is required.", pol.Checks.Node.Minimum),
-							Severity: normalizeSeverity(pol.Checks.Node.Severity),
-						})
-						score -= getPenalty(pol.Checks.Node.Severity)
+	for _, rule := range pol.Rules {
+		switch rule.Check {
+		case "firewall.enabled":
+			if res, ok := checkResults["firewall"]; ok && res.Success {
+				active, _ := res.Data["active"].(bool)
+				if rule.Operator == "equals" {
+					expectedBool, okExp := rule.Expected.(bool)
+					if !okExp {
+						return CheckRunPayload{}, fmt.Errorf("rule %s expected value must be a boolean", rule.ID)
 					}
-				} else if nodeVer == "error" || nodeVer == "unknown" {
-					// skip or warn
-				} else {
-					if isVersionLess(nodeVer, pol.Checks.Node.Minimum) {
+					if active != expectedBool {
 						findings = append(findings, Finding{
-							RuleName: "node",
+							RuleName: rule.ID,
 							Status:   "FAIL",
-							Message:  fmt.Sprintf("Node.js version %s is below organization minimum of %s. Run 'nvm use %s' or upgrade.", nodeVer, pol.Checks.Node.Minimum, strings.Split(pol.Checks.Node.Minimum, ".")[0]),
-							Severity: normalizeSeverity(pol.Checks.Node.Severity),
+							Message:  rule.Description,
+							Severity: normalizeSeverity(rule.Severity),
 						})
-						score -= getPenalty(pol.Checks.Node.Severity)
+						score -= getPenalty(rule.Severity)
 					}
 				}
 			}
-
-			// Evaluate Docker
-			if pol.Checks.Docker.Enabled {
-				dockerVer, _ := versions["docker"].(string)
-				if dockerVer == "not_installed" {
-					if pol.Checks.Docker.Required {
-						findings = append(findings, Finding{
-							RuleName: "docker",
-							Status:   "FAIL",
-							Message:  fmt.Sprintf("Docker is not installed. Docker >= %s is required.", pol.Checks.Docker.Minimum),
-							Severity: normalizeSeverity(pol.Checks.Docker.Severity),
-						})
-						score -= getPenalty(pol.Checks.Docker.Severity)
+		case "disk.root_encrypted":
+			if res, ok := checkResults["encryption"]; ok && res.Success {
+				status, _ := res.Data["status"].(string)
+				isEncrypted := status == "Encrypted"
+				if rule.Operator == "equals" {
+					expectedBool, okExp := rule.Expected.(bool)
+					if !okExp {
+						return CheckRunPayload{}, fmt.Errorf("rule %s expected value must be a boolean", rule.ID)
 					}
-				} else if dockerVer == "error" || dockerVer == "unknown" {
-					// skip
-				} else {
-					if isVersionLess(dockerVer, pol.Checks.Docker.Minimum) {
+					if isEncrypted != expectedBool {
 						findings = append(findings, Finding{
-							RuleName: "docker",
+							RuleName: rule.ID,
 							Status:   "FAIL",
-							Message:  fmt.Sprintf("Docker version %s is below organization minimum of %s.", dockerVer, pol.Checks.Docker.Minimum),
-							Severity: normalizeSeverity(pol.Checks.Docker.Severity),
+							Message:  rule.Description,
+							Severity: normalizeSeverity(rule.Severity),
 						})
-						score -= getPenalty(pol.Checks.Docker.Severity)
+						score -= getPenalty(rule.Severity)
+					}
+				}
+			}
+		case "ssh.enabled", "ssh.active":
+			if res, ok := checkResults["ssh"]; ok && res.Success {
+				active, _ := res.Data["active"].(bool)
+				if rule.Operator == "equals" {
+					expectedBool, okExp := rule.Expected.(bool)
+					if !okExp {
+						return CheckRunPayload{}, fmt.Errorf("rule %s expected value must be a boolean", rule.ID)
+					}
+					if active != expectedBool {
+						findings = append(findings, Finding{
+							RuleName: rule.ID,
+							Status:   "FAIL",
+							Message:  rule.Description,
+							Severity: normalizeSeverity(rule.Severity),
+						})
+						score -= getPenalty(rule.Severity)
+					}
+				}
+			}
+		case "updates.pending", "runtime.updates":
+			if res, ok := checkResults["updates"]; ok && res.Success {
+				pending, _ := res.Data["pending_count"].(int)
+				if rule.Operator == "equals" {
+					expectedInt, okInt := rule.Expected.(int)
+					if !okInt {
+						if expFloat, okFloat := rule.Expected.(float64); okFloat {
+							expectedInt = int(expFloat)
+							okInt = true
+						}
+					}
+					if okInt {
+						if pending > expectedInt {
+							findings = append(findings, Finding{
+								RuleName: rule.ID,
+								Status:   "WARN",
+								Message:  rule.Description,
+								Severity: normalizeSeverity(rule.Severity),
+							})
+							score -= getPenalty(rule.Severity)
+						}
+					} else {
+						expectedBool, okBool := rule.Expected.(bool)
+						if okBool && !expectedBool && pending > 0 {
+							findings = append(findings, Finding{
+								RuleName: rule.ID,
+								Status:   "WARN",
+								Message:  rule.Description,
+								Severity: normalizeSeverity(rule.Severity),
+							})
+							score -= getPenalty(rule.Severity)
+						}
+					}
+				}
+			}
+		case "runtime.node.version":
+			if res, ok := checkResults["runtime"]; ok && res.Success {
+				versions, _ := res.Data["versions"].(map[string]interface{})
+				if versions != nil {
+					nodeVer, _ := versions["node"].(string)
+					expectedStr, okExp := rule.Expected.(string)
+					if !okExp {
+						return CheckRunPayload{}, fmt.Errorf("rule %s expected value must be a string version", rule.ID)
+					}
+					if nodeVer == "not_installed" {
+						findings = append(findings, Finding{
+							RuleName: rule.ID,
+							Status:   "FAIL",
+							Message:  fmt.Sprintf("%s (Node.js is not installed)", rule.Description),
+							Severity: normalizeSeverity(rule.Severity),
+						})
+						score -= getPenalty(rule.Severity)
+					} else if nodeVer != "error" && nodeVer != "unknown" {
+						if rule.Operator == "semver_gte" {
+							if isVersionLess(nodeVer, expectedStr) {
+								findings = append(findings, Finding{
+									RuleName: rule.ID,
+									Status:   "FAIL",
+									Message:  fmt.Sprintf("%s (Current version %s is below required %s)", rule.Description, nodeVer, expectedStr),
+									Severity: normalizeSeverity(rule.Severity),
+								})
+								score -= getPenalty(rule.Severity)
+							}
+						}
+					}
+				}
+			}
+		case "runtime.docker.version":
+			if res, ok := checkResults["runtime"]; ok && res.Success {
+				versions, _ := res.Data["versions"].(map[string]interface{})
+				if versions != nil {
+					dockerVer, _ := versions["docker"].(string)
+					expectedStr, okExp := rule.Expected.(string)
+					if !okExp {
+						return CheckRunPayload{}, fmt.Errorf("rule %s expected value must be a string version", rule.ID)
+					}
+					if dockerVer == "not_installed" {
+						findings = append(findings, Finding{
+							RuleName: rule.ID,
+							Status:   "FAIL",
+							Message:  fmt.Sprintf("%s (Docker is not installed)", rule.Description),
+							Severity: normalizeSeverity(rule.Severity),
+						})
+						score -= getPenalty(rule.Severity)
+					} else if dockerVer != "error" && dockerVer != "unknown" {
+						if rule.Operator == "semver_gte" {
+							if isVersionLess(dockerVer, expectedStr) {
+								findings = append(findings, Finding{
+									RuleName: rule.ID,
+									Status:   "FAIL",
+									Message:  fmt.Sprintf("%s (Current version %s is below required %s)", rule.Description, dockerVer, expectedStr),
+									Severity: normalizeSeverity(rule.Severity),
+								})
+								score -= getPenalty(rule.Severity)
+							}
+						}
 					}
 				}
 			}
 		}
 	}
 
-	// Clamp score between 0 and 100
 	if score < 0 {
 		score = 0
 	}
 
-	// Calculate overall state status
 	status := "PASS"
 	hasFail := false
 	hasWarn := false
@@ -270,7 +303,6 @@ func normalizeSeverity(severity string) string {
 }
 
 func isVersionLess(v1, v2 string) bool {
-	// Simple semver comparison helper: splits by . and compares parts as integers
 	v1 = strings.TrimPrefix(v1, "v")
 	v2 = strings.TrimPrefix(v2, "v")
 	parts1 := strings.Split(v1, ".")
@@ -278,12 +310,11 @@ func isVersionLess(v1, v2 string) bool {
 
 	for i := 0; i < len(parts2); i++ {
 		if i >= len(parts1) {
-			return true // parts1 has fewer levels, like "22" vs "22.0.0"
+			return true
 		}
 		p1, err1 := strconv.Atoi(parts1[i])
 		p2, err2 := strconv.Atoi(parts2[i])
 		if err1 != nil || err2 != nil {
-			// String comparison fallback
 			if parts1[i] != parts2[i] {
 				return parts1[i] < parts2[i]
 			}
@@ -298,32 +329,60 @@ func isVersionLess(v1, v2 string) bool {
 	return false
 }
 
-func getDefaultPolicy() Policy {
-	p := Policy{}
-	p.Checks.Firewall.Enabled = true
-	p.Checks.Firewall.Required = true
-	p.Checks.Firewall.Severity = "HIGH"
-
-	p.Checks.Encryption.Enabled = true
-	p.Checks.Encryption.Required = true
-	p.Checks.Encryption.Severity = "HIGH"
-
-	p.Checks.SSH.Enabled = true
-	p.Checks.SSH.Required = false
-	p.Checks.SSH.Severity = "MEDIUM"
-
-	p.Checks.Updates.Enabled = true
-	p.Checks.Updates.Required = true
-	p.Checks.Updates.Severity = "MEDIUM"
-
-	p.Checks.Node.Enabled = true
-	p.Checks.Node.Required = true
-	p.Checks.Node.Minimum = "22.0.0"
-	p.Checks.Node.Severity = "MEDIUM"
-
-	p.Checks.Docker.Enabled = true
-	p.Checks.Docker.Required = false
-	p.Checks.Docker.Minimum = "20.0.0"
-	p.Checks.Docker.Severity = "LOW"
-	return p
+func getDefaultSchemaV1Policy() SchemaV1Policy {
+	var pol SchemaV1Policy
+	pol.SchemaVersion = 1
+	pol.Metadata.Name = "Default Workstation Baseline"
+	pol.Metadata.Description = "Default organization security rules for workstations"
+	pol.Rules = []Rule{
+		{
+			ID:          "workstation.firewall.enabled",
+			Check:       "firewall.enabled",
+			Description: "System firewall is disabled. Turn on your firewall using 'sudo ufw enable', 'sudo systemctl start firewalld', or system preferences.",
+			Severity:    "HIGH",
+			Operator:    "equals",
+			Expected:    true,
+		},
+		{
+			ID:          "workstation.disk.encrypted",
+			Check:       "disk.root_encrypted",
+			Description: "Root filesystem is not encrypted. Secure boot and drive encryption (LUKS/dm-crypt) are required.",
+			Severity:    "HIGH",
+			Operator:    "equals",
+			Expected:    true,
+		},
+		{
+			ID:          "workstation.ssh.enabled",
+			Check:       "ssh.enabled",
+			Description: "SSH daemon is active. Disable it via 'sudo systemctl disable --now sshd' to minimize network attack surface.",
+			Severity:    "MEDIUM",
+			Operator:    "equals",
+			Expected:    false,
+		},
+		{
+			ID:          "workstation.updates.pending",
+			Check:       "updates.pending",
+			Description: "Your system has pending package updates. Run your package manager upgrade command.",
+			Severity:    "MEDIUM",
+			Operator:    "equals",
+			Expected:    0,
+		},
+		{
+			ID:          "runtime.node.minimum",
+			Check:       "runtime.node.version",
+			Description: "Node.js version is below organization minimum.",
+			Severity:    "MEDIUM",
+			Operator:    "semver_gte",
+			Expected:    "22.0.0",
+		},
+		{
+			ID:          "runtime.docker.minimum",
+			Check:       "runtime.docker.version",
+			Description: "Docker version is below organization minimum.",
+			Severity:    "LOW",
+			Operator:    "semver_gte",
+			Expected:    "20.0.0",
+		},
+	}
+	return pol
 }
