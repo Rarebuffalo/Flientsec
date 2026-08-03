@@ -2,7 +2,7 @@ package checks
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -54,7 +54,7 @@ func (e *encryptionCheck) Run() (CheckResult, error) {
 
 	// Method 2: Fallback to /proc/mounts analysis if still Not Encrypted or details empty
 	if status == "Not Encrypted" {
-		mountsData, err := ioutil.ReadFile("/proc/mounts")
+		mountsData, err := os.ReadFile("/proc/mounts")
 		if err == nil {
 			lines := strings.Split(string(mountsData), "\n")
 			for _, line := range lines {
