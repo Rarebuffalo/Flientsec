@@ -3,6 +3,7 @@ import io
 import uuid
 import yaml
 import json
+import hashlib
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
@@ -854,6 +855,7 @@ def update_policy(
         policy_id=policy.id,
         version_number=next_num,
         definition_json=json.dumps(rules_dict),
+        content=policy_in.rules_yaml,
         created_by=current_user.id,
     )
     db.add(new_ver)
@@ -933,12 +935,110 @@ def create_policy_version(
         policy_id=id,
         version_number=next_num,
         definition_json=rules_json,
+        content=rules_json,
         created_by=current_user.id,
     )
     db.add(new_ver)
     db.commit()
     db.refresh(new_ver)
     return new_ver
+
+
+@router.post("/policies/{policy_id}/versions/{version_id}/publish", response_model=schemas.PolicyVersionResponse)
+def publish_policy_version(
+    policy_id: uuid.UUID,
+    version_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = (
+        db.query(models.Policy)
+        .filter(
+            models.Policy.id == policy_id,
+            models.Policy.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    version = (
+        db.query(models.PolicyVersion)
+        .filter(
+            models.PolicyVersion.id == version_id,
+            models.PolicyVersion.policy_id == policy_id,
+        )
+        .first()
+    )
+    if not version:
+        raise HTTPException(status_code=404, detail="Policy version not found")
+
+    if version.status == "PUBLISHED":
+        raise HTTPException(status_code=400, detail="Policy version is already published")
+
+    version.status = "PUBLISHED"
+    # Ensure content is set
+    if not version.content:
+        version.content = version.definition_json
+    # Compute content hash
+    version.content_hash = hashlib.sha256(version.content.encode('utf-8')).hexdigest()
+
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+@router.post("/policies/{policy_id}/activate", response_model=schemas.PolicyResponse)
+def activate_policy_version(
+    policy_id: uuid.UUID,
+    version_id: uuid.UUID = Query(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = (
+        db.query(models.Policy)
+        .filter(
+            models.Policy.id == policy_id,
+            models.Policy.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    version = (
+        db.query(models.PolicyVersion)
+        .filter(
+            models.PolicyVersion.id == version_id
+        )
+        .first()
+    )
+    if not version:
+        raise HTTPException(status_code=404, detail="Policy version not found")
+
+    # Invariants verification:
+    # 1. Must belong to the same Policy
+    if version.policy_id != policy.id:
+        raise HTTPException(status_code=400, detail="Policy version does not belong to this policy")
+
+    # 2. Must be PUBLISHED
+    if version.status != "PUBLISHED":
+        raise HTTPException(status_code=400, detail="Cannot activate a draft policy version")
+
+    policy.active_version_id = version.id
+    db.commit()
+    db.refresh(policy)
+
+    # Populate rules_yaml dynamically for backward compatibility / schema requirements
+    try:
+        rules_dict = json.loads(version.definition_json)
+        policy.rules_yaml = yaml.dump(rules_dict, default_flow_style=False)
+    except Exception:
+        policy.rules_yaml = ""
+
+    return policy
 
 
 @router.get("/reports/export")
