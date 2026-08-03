@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -116,7 +115,7 @@ func main() {
 }
 
 func loadConfig(path string) (*AgentConfig, error) {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +128,7 @@ func loadConfig(path string) (*AgentConfig, error) {
 }
 
 func getOrGenerateUUID(filePath string) (string, error) {
-	if data, err := ioutil.ReadFile(filePath); err == nil {
+	if data, err := os.ReadFile(filePath); err == nil {
 		uuidStr := strings.TrimSpace(string(data))
 		if uuidStr != "" {
 			return uuidStr, nil
@@ -152,7 +151,7 @@ func getOrGenerateUUID(filePath string) (string, error) {
 		os.MkdirAll(dir, 0755)
 	}
 
-	err = ioutil.WriteFile(filePath, []byte(uuidStr), 0600)
+	err = os.WriteFile(filePath, []byte(uuidStr), 0600)
 	if err != nil {
 		return "", err
 	}
@@ -163,7 +162,7 @@ func getOSRelease() (string, string) {
 	name := runtime.GOOS
 	version := "unknown"
 
-	data, err := ioutil.ReadFile("/etc/os-release")
+	data, err := os.ReadFile("/etc/os-release")
 	if err == nil {
 		lines := strings.Split(string(data), "\n")
 		for _, line := range lines {
