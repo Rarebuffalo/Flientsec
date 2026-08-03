@@ -944,7 +944,10 @@ def create_policy_version(
     return new_ver
 
 
-@router.post("/policies/{policy_id}/versions/{version_id}/publish", response_model=schemas.PolicyVersionResponse)
+@router.post(
+    "/policies/{policy_id}/versions/{version_id}/publish",
+    response_model=schemas.PolicyVersionResponse
+)
 def publish_policy_version(
     policy_id: uuid.UUID,
     version_id: uuid.UUID,
@@ -972,24 +975,32 @@ def publish_policy_version(
         .first()
     )
     if not version:
-        raise HTTPException(status_code=404, detail="Policy version not found")
+        raise HTTPException(
+            status_code=404, detail="Policy version not found"
+        )
 
     if version.status == "PUBLISHED":
-        raise HTTPException(status_code=400, detail="Policy version is already published")
+        raise HTTPException(
+            status_code=400, detail="Policy version is already published"
+        )
 
     version.status = "PUBLISHED"
     # Ensure content is set
     if not version.content:
         version.content = version.definition_json
     # Compute content hash
-    version.content_hash = hashlib.sha256(version.content.encode('utf-8')).hexdigest()
+    version.content_hash = hashlib.sha256(
+        version.content.encode('utf-8')
+    ).hexdigest()
 
     db.commit()
     db.refresh(version)
     return version
 
 
-@router.post("/policies/{policy_id}/activate", response_model=schemas.PolicyResponse)
+@router.post(
+    "/policies/{policy_id}/activate", response_model=schemas.PolicyResponse
+)
 def activate_policy_version(
     policy_id: uuid.UUID,
     version_id: uuid.UUID = Query(...),
@@ -1016,22 +1027,31 @@ def activate_policy_version(
         .first()
     )
     if not version:
-        raise HTTPException(status_code=404, detail="Policy version not found")
+        raise HTTPException(
+            status_code=404, detail="Policy version not found"
+        )
 
     # Invariants verification:
     # 1. Must belong to the same Policy
     if version.policy_id != policy.id:
-        raise HTTPException(status_code=400, detail="Policy version does not belong to this policy")
+        raise HTTPException(
+            status_code=400,
+            detail="Policy version does not belong to this policy"
+        )
 
     # 2. Must be PUBLISHED
     if version.status != "PUBLISHED":
-        raise HTTPException(status_code=400, detail="Cannot activate a draft policy version")
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot activate a draft policy version"
+        )
 
     policy.active_version_id = version.id
     db.commit()
     db.refresh(policy)
 
-    # Populate rules_yaml dynamically for backward compatibility / schema requirements
+    # Populate rules_yaml dynamically for backward compatibility
+    # / schema requirements
     try:
         rules_dict = json.loads(version.definition_json)
         policy.rules_yaml = yaml.dump(rules_dict, default_flow_style=False)
