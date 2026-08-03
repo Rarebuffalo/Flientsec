@@ -43,7 +43,7 @@ type RegisterResponse struct {
 
 func (c *Client) Register(device DeviceRegister) error {
 	endpoint := fmt.Sprintf("%s/api/v1/agent/register", c.BaseURL)
-	
+
 	jsonData, err := json.Marshal(device)
 	if err != nil {
 		return err

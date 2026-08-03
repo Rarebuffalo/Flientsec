@@ -69,11 +69,11 @@ func main() {
 	osArch := runtime.GOARCH
 	agentVersion := "1.0.0"
 
-	slog.Info("System specifications gathered", 
-		"hostname", hostname, 
-		"os", osName, 
-		"os_version", osVer, 
-		"os_arch", osArch, 
+	slog.Info("System specifications gathered",
+		"hostname", hostname,
+		"os", osName,
+		"os_version", osVer,
+		"os_arch", osArch,
 		"kernel", kernelVer,
 	)
 
@@ -108,7 +108,7 @@ func main() {
 	// Run main check-in ticker loop
 	slog.Info("Entering posture evaluation daemon loop...", "interval_sec", cfg.Interval)
 	checkTicker := time.NewTicker(time.Duration(cfg.Interval) * time.Second)
-	
+
 	for range checkTicker.C {
 		slog.Info("Triggering periodic check-in run...")
 		runChecksAndPost(apiClient, deviceUUID, cfg)
@@ -239,7 +239,7 @@ func runChecksAndPost(c *client.Client, deviceID string, cfg *AgentConfig) {
 	} else {
 		runID = fmt.Sprintf("00000000-0000-0000-0000-%012d", time.Now().Unix())
 	}
-	
+
 	payload, err := policy.Evaluate(policyData, collectedData, runID)
 	if err != nil {
 		slog.Error("Failed to evaluate local security policy", "err", err)
