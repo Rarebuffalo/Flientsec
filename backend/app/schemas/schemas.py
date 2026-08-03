@@ -79,6 +79,7 @@ class DeviceResponse(BaseModel):
 # Finding Schemas
 class FindingCreate(BaseModel):
     check_name: str
+    rule_id: str
     severity: str
     status: str
     reason: str
@@ -86,11 +87,16 @@ class FindingCreate(BaseModel):
 
 class FindingResponse(BaseModel):
     id: UUID
+    policy_id: Optional[UUID] = None
+    rule_id: str
     check_name: str
     severity: str
     status: str
-    reason: str
+    reason: Optional[str] = None
+    resolution_reason: Optional[str] = None
     created_at: datetime
+    first_detected_at: datetime
+    last_detected_at: datetime
     resolved_at: Optional[datetime] = None
 
     class Config:
@@ -124,6 +130,8 @@ class CheckRunResponse(BaseModel):
     status: str
     score: int
     findings: List[DeviceFindingResponse] = []
+    policy_version_id: Optional[UUID] = None
+    content_hash: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -159,6 +167,7 @@ class PolicyResponse(BaseModel):
     description: Optional[str] = None
     created_at: datetime
     rules_yaml: str
+    active_version_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -169,6 +178,8 @@ class PolicyVersionResponse(BaseModel):
     policy_id: UUID
     version_number: int
     definition_json: str
+    status: str
+    content_hash: Optional[str] = None
     created_by: UUID
     created_at: datetime
 
