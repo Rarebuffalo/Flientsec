@@ -10,7 +10,11 @@ from alembic import command
 def create_org_and_user(db):
     org = models.Organization(id=uuid.uuid4(), name="Test Org")
     db.add(org)
-    user = models.User(id=uuid.uuid4(), email="test@flientsec.local", hashed_password="pw")
+    user = models.User(
+        id=uuid.uuid4(),
+        email="test@flientsec.local",
+        hashed_password="pw"
+    )
     db.add(user)
     db.commit()
     return org, user
@@ -18,11 +22,13 @@ def create_org_and_user(db):
 
 def test_active_version_invariants(db):
     org, user = create_org_and_user(db)
-    
+
     # Create Policy 1
-    policy1 = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy 1")
+    policy1 = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy 1"
+    )
     db.add(policy1)
-    
+
     # Create Draft Version for Policy 1
     v1_draft = models.PolicyVersion(
         id=uuid.uuid4(),
@@ -34,7 +40,7 @@ def test_active_version_invariants(db):
         created_by=user.id
     )
     db.add(v1_draft)
-    
+
     # Create Published Version for Policy 1
     v1_published = models.PolicyVersion(
         id=uuid.uuid4(),
@@ -43,13 +49,17 @@ def test_active_version_invariants(db):
         definition_json='{"rules": []}',
         content='{"rules": []}',
         status="PUBLISHED",
-        content_hash=hashlib.sha256('{"rules": []}'.encode('utf-8')).hexdigest(),
+        content_hash=hashlib.sha256(
+            '{"rules": []}'.encode('utf-8')
+        ).hexdigest(),
         created_by=user.id
     )
     db.add(v1_published)
-    
+
     # Create Policy 2 and a Published Version
-    policy2 = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy 2")
+    policy2 = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy 2"
+    )
     db.add(policy2)
     v2_published = models.PolicyVersion(
         id=uuid.uuid4(),
@@ -58,7 +68,9 @@ def test_active_version_invariants(db):
         definition_json='{"rules": []}',
         content='{"rules": []}',
         status="PUBLISHED",
-        content_hash=hashlib.sha256('{"rules": []}'.encode('utf-8')).hexdigest(),
+        content_hash=hashlib.sha256(
+            '{"rules": []}'.encode('utf-8')
+        ).hexdigest(),
         created_by=user.id
     )
     db.add(v2_published)
@@ -76,15 +88,17 @@ def test_sha256_hash_calculation():
     # Exact UTF-8 PolicyVersion content produces stored SHA-256 hash
     content = '{"rules": [{"id": "rule.1"}]}'
     expected_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
-    
+
     # Verify hash computation identity
     assert len(expected_hash) == 64
-    assert expected_hash == hashlib.sha256(content.encode('utf-8')).hexdigest()
+    assert expected_hash == hashlib.sha256(
+        content.encode('utf-8')
+    ).hexdigest()
 
 
 def test_finding_uniqueness_constraint(db):
     org, user = create_org_and_user(db)
-    
+
     device = models.Device(
         id=uuid.uuid4(),
         organization_id=org.id,
@@ -96,8 +110,10 @@ def test_finding_uniqueness_constraint(db):
         agent_version="1.0.0"
     )
     db.add(device)
-    
-    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy A")
+
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy A"
+    )
     db.add(policy)
     db.commit()
 
@@ -114,8 +130,8 @@ def test_finding_uniqueness_constraint(db):
     db.add(f1)
     db.commit()
 
-    # 2. Attempt to create second duplicate OPEN finding for same device + policy + rule
-    # We run this inside a savepoint (begin_nested) so it doesn't break the outer transaction
+    # 2. Attempt to create second duplicate OPEN finding
+    # We run this inside a savepoint (begin_nested)
     with pytest.raises(IntegrityError):
         with db.begin_nested():
             f2 = models.Finding(
@@ -154,7 +170,12 @@ def test_finding_uniqueness_constraint(db):
     db.commit()  # Should succeed cleanly
 
     # Verify that both RESOLVED findings exist in database
-    assert db.query(models.Finding).filter(models.Finding.status == "RESOLVED").count() == 2
+    resolved_count = (
+        db.query(models.Finding)
+        .filter(models.Finding.status == "RESOLVED")
+        .count()
+    )
+    assert resolved_count == 2
 
 
 def test_finding_resolved_at_field():
@@ -164,7 +185,9 @@ def test_finding_resolved_at_field():
 
 def test_published_policy_version_immutability(db):
     org, user = create_org_and_user(db)
-    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy A")
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy A"
+    )
     db.add(policy)
     db.commit()
 
@@ -181,26 +204,35 @@ def test_published_policy_version_immutability(db):
     db.add(v)
     db.commit()
 
-    # Attempt to modify definition_json after publication should raise ValueError
-    with pytest.raises(ValueError, match="Cannot modify a PUBLISHED policy version"):
+    # Attempt to modify definition_json after publication
+    # should raise ValueError
+    with pytest.raises(
+        ValueError, match="Cannot modify a PUBLISHED policy version"
+    ):
         v.definition_json = '{"rules": [{"id": "new"}]}'
-    
+
     # Attempt to modify content after publication should raise ValueError
-    with pytest.raises(ValueError, match="Cannot modify a PUBLISHED policy version"):
+    with pytest.raises(
+        ValueError, match="Cannot modify a PUBLISHED policy version"
+    ):
         v.content = '{"rules": [{"id": "new"}]}'
-    
+
     # Stored content_hash remains unchanged
     assert v.content_hash == "dummy_hash"
 
 
 def test_policy_assignments_uniqueness(db):
     org, user = create_org_and_user(db)
-    
-    p1 = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy 1")
-    p2 = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="Policy 2")
+
+    p1 = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy 1"
+    )
+    p2 = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy 2"
+    )
     db.add(p1)
     db.add(p2)
-    
+
     device = models.Device(
         id=uuid.uuid4(),
         organization_id=org.id,
@@ -262,9 +294,9 @@ def test_policy_assignments_uniqueness(db):
 def test_alembic_upgrade_downgrade():
     # Verify alembic migrations run cleanly outside active transactions
     alembic_cfg = Config("alembic.ini")
-    
+
     # Downgrade to base
     command.downgrade(alembic_cfg, "base")
-    
+
     # Upgrade to head
     command.upgrade(alembic_cfg, "head")
