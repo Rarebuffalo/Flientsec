@@ -180,13 +180,21 @@ def test_finding_uniqueness_constraint(db):
     db.add(f4)
     db.commit()  # Should succeed cleanly
 
-    # Verify that both RESOLVED findings exist in database
-    resolved_count = (
+    # Verify that one OPEN and multiple RESOLVED can coexist simultaneously
+    total_findings = (
         db.query(models.Finding)
-        .filter(models.Finding.status == "RESOLVED")
-        .count()
+        .filter(
+            models.Finding.device_id == device.id,
+            models.Finding.policy_id == policy.id,
+            models.Finding.rule_id == "workstation.firewall.enabled"
+        )
+        .all()
     )
-    assert resolved_count == 2
+    assert len(total_findings) == 3
+    open_count = len([f for f in total_findings if f.status == "OPEN"])
+    res_count = len([f for f in total_findings if f.status == "RESOLVED"])
+    assert open_count == 1
+    assert res_count == 2
 
 
 def test_finding_resolved_at_field():
@@ -838,7 +846,19 @@ def test_checkin_provenance_current(client, db):
         "content_hash": f"sha256:{c_hash}"
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["provenance_status"] == "CURRENT"
@@ -925,7 +945,19 @@ def test_checkin_provenance_outdated(client, db):
         "content_hash": f"sha256:{hash_stale}"
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["provenance_status"] == "OUTDATED_POLICY"
@@ -991,7 +1023,19 @@ def test_checkin_provenance_cross_tenant_rejected(client, db):
         "content_hash": f"sha256:{version_org2.content_hash}"
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 400
     assert "tenant mismatch" in resp.json()["detail"].lower()
 
@@ -1042,7 +1086,19 @@ def test_checkin_provenance_hash_mismatch_rejected(client, db):
         "content_hash": "sha256:badhash"
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 400
     assert "content hash mismatch" in resp.json()["detail"].lower()
 
@@ -1075,7 +1131,19 @@ def test_checkin_provenance_unknown_version_rejected(client, db):
         "content_hash": "sha256:somehash"
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 400
     assert "Invalid policy version" in resp.json()["detail"]
 
@@ -1126,7 +1194,19 @@ def test_checkin_provenance_draft_rejected(client, db):
         "content_hash": f"sha256:{version.content_hash}"
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 400
     assert "Invalid policy version" in resp.json()["detail"]
 
@@ -1157,6 +1237,1467 @@ def test_checkin_provenance_missing_rejected(client, db):
         "findings": []
     }
 
-    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
     assert resp.status_code == 400
     assert "Missing required policy version" in resp.json()["detail"]
+
+
+def test_migration_status_normalization(db):
+    org = models.Organization(id=uuid.uuid4(), name="Normalization Org")
+    db.add(org)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_normalization",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    # Create dummy findings with mixed case status
+    f1 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        rule_id="r1",
+        check_name="c1",
+        status="Open",  # mixed case
+        severity="medium",
+        created_at=datetime.utcnow()
+    )
+    f2 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        rule_id="r2",
+        check_name="c2",
+        status="Resolved",  # mixed case
+        severity="medium",
+        created_at=datetime.utcnow()
+    )
+    f3 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        rule_id="r3",
+        check_name="c3",
+        status="open",  # lower case
+        severity="medium",
+        created_at=datetime.utcnow()
+    )
+    f4 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        rule_id="r4",
+        check_name="c4",
+        status="resolved",  # lower case
+        severity="medium",
+        created_at=datetime.utcnow()
+    )
+    db.add_all([f1, f2, f3, f4])
+    db.commit()
+
+    # Run SQL updates to simulate migration
+    from sqlalchemy import text
+    db.execute(
+        text("UPDATE findings SET status = 'OPEN' "
+             "WHERE status = 'Open' OR status = 'open'")
+    )
+    db.execute(
+        text("UPDATE findings SET status = 'RESOLVED' "
+             "WHERE status = 'Resolved' OR status = 'resolved'")
+    )
+    db.commit()
+
+    # Verify normalization
+    db.refresh(f1)
+    db.refresh(f2)
+    db.refresh(f3)
+    db.refresh(f4)
+    assert f1.status == "OPEN"
+    assert f2.status == "RESOLVED"
+    assert f3.status == "OPEN"
+    assert f4.status == "RESOLVED"
+
+
+def test_checkin_transition_unknown_to_fail(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift1",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, '
+        '"severity": "medium", "description": "Firewall Rule"}]}'
+    )
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    # First check-in: rule fails
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift1"
+    }
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": datetime.utcnow().isoformat(),
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Firewall is disabled",
+                "severity": "medium"
+            }
+        ]
+    }
+
+    resp = client.post(
+
+
+        '/api/v1/agent/checkin',
+
+
+        json=payload,
+
+
+        headers=headers
+
+
+    )
+    assert resp.status_code == 200
+
+    # Verify finding exists and has status = "OPEN", drift_type = None
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1"
+    ).first()
+    assert finding is not None
+    assert finding.status == "OPEN"
+    assert finding.drift_type is None
+
+    # Verify event VIOLATION_TRIGGERED exists
+    event = db.query(models.Event).filter(
+        models.Event.device_id == device.id,
+        models.Event.type == "VIOLATION_TRIGGERED"
+    ).first()
+    assert event is not None
+    assert event.rule_name == "r1"
+    assert event.finding_id == finding.id
+    assert event.policy_version_id == version.id
+
+
+def test_checkin_transition_pass_to_fail(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift2",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, '
+        '"severity": "medium", "description": "Firewall Rule"}]}'
+    )
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift2"
+    }
+
+    # 1. Run 1: PASS
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": []
+    }
+    resp1 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+    assert resp1.status_code == 200
+
+    # 2. Run 2: FAIL (Drift)
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Firewall was turned off",
+                "severity": "medium"
+            }
+        ]
+    }
+    resp2 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+    assert resp2.status_code == 200
+
+    # Verify finding has drift_type = "DEVICE_DRIFT"
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1",
+        models.Finding.status == "OPEN"
+    ).first()
+    assert finding is not None
+    assert finding.drift_type == "DEVICE_DRIFT"
+
+
+def test_checkin_transition_fail_to_fail(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift3",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, '
+        '"severity": "medium", "description": "Firewall Rule"}]}'
+    )
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift3"
+    }
+
+    # 1. Run 1: FAIL
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Firewall was turned off",
+                "severity": "medium"
+            }
+        ]
+    }
+    resp1 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+    assert resp1.status_code == 200
+
+    finding1 = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1",
+        models.Finding.status == "OPEN"
+    ).first()
+    assert finding1 is not None
+    t1 = finding1.last_detected_at
+
+    # 2. Run 2: FAIL again (consecutive failure)
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Still disabled",
+                "severity": "medium"
+            }
+        ]
+    }
+    resp2 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+    assert resp2.status_code == 200
+
+    # Verify no duplicate findings were created
+    findings = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1",
+        models.Finding.status == "OPEN"
+    ).all()
+    assert len(findings) == 1
+    assert findings[0].last_detected_at > t1
+    assert findings[0].reason == "Still disabled"
+
+    # Verify only one event was triggered
+    events = db.query(models.Event).filter(
+        models.Event.device_id == device.id,
+        models.Event.type == "VIOLATION_TRIGGERED"
+    ).all()
+    assert len(events) == 1
+
+
+def test_checkin_transition_fail_to_pass(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift4",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, '
+        '"severity": "medium", "description": "Firewall Rule"}]}'
+    )
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift4"
+    }
+
+    # 1. Run 1: FAIL
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Disabled",
+                "severity": "medium"
+            }
+        ]
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+
+    # 2. Run 2: PASS
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": []
+    }
+    resp2 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+    assert resp2.status_code == 200
+
+    # Verify finding is now RESOLVED and has resolution_reason = "REMEDIATED"
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1"
+    ).first()
+    assert finding.status == "RESOLVED"
+    assert finding.resolution_reason == "REMEDIATED"
+    assert finding.resolved_at is not None
+
+    # Verify event VIOLATION_RESOLVED is triggered
+    event = db.query(models.Event).filter(
+        models.Event.device_id == device.id,
+        models.Event.type == "VIOLATION_RESOLVED"
+    ).first()
+    assert event is not None
+    assert event.rule_name == "r1"
+    assert event.finding_id == finding.id
+
+
+def test_checkin_transition_pass_to_pass(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift5",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, '
+        '"severity": "medium", "description": "Firewall Rule"}]}'
+    )
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift5"
+    }
+
+    # 1. Run 1: PASS
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": []
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+
+    # 2. Run 2: PASS
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": []
+    }
+    resp2 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+    assert resp2.status_code == 200
+
+    # Verify no findings and no events exist
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id
+    ).first()
+    assert finding is None
+
+    event = db.query(models.Event).filter(
+        models.Event.device_id == device.id
+    ).first()
+    assert event is None
+
+
+def test_multiple_rule_lifecycles_are_independent(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift6",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, "severity": "medium", '
+        '"description": "Firewall Rule"}, '
+        '{"id": "r2", "check": "ssh.enabled", '
+        '"operator": "equals", "expected": false, "severity": "medium", '
+        '"description": "SSH Rule"}]}'
+    )
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift6"
+    }
+
+    # 1. Run 1: Both fail
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 30,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Firewall disabled",
+                "severity": "medium"
+            },
+            {
+                "rule_id": "r2",
+                "check_name": "ssh.enabled",
+                "status": "FAIL",
+                "reason": "SSH active",
+                "severity": "medium"
+            }
+        ]
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+
+    # Verify both are OPEN
+    f1 = db.query(models.Finding).filter(
+        models.Finding.rule_id == "r1"
+    ).first()
+    f2 = db.query(models.Finding).filter(
+        models.Finding.rule_id == "r2"
+    ).first()
+    assert f1.status == "OPEN"
+    assert f2.status == "OPEN"
+
+    # 2. Run 2: r1 passes, r2 still fails
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 60,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": [
+            {
+                "rule_id": "r2",
+                "check_name": "ssh.enabled",
+                "status": "FAIL",
+                "reason": "SSH active",
+                "severity": "medium"
+            }
+        ]
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+
+    # Verify r1 is RESOLVED/REMEDIATED, r2 is still OPEN
+    db.refresh(f1)
+    db.refresh(f2)
+    assert f1.status == "RESOLVED"
+    assert f1.resolution_reason == "REMEDIATED"
+    assert f2.status == "OPEN"
+
+
+def test_drift_classification_policy_change(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift7",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    # Version 1 requires Docker version >= "20.10.0"
+    rules_json1 = (
+        '{"rules": [{"id": "r1", "check": "runtime.docker.version", '
+        '"operator": "semver_gte", "expected": "20.10.0", '
+        '"severity": "medium", "description": "Docker rule"}]}'
+    )
+    c_hash1 = hashlib.sha256(rules_json1.encode("utf-8")).hexdigest()
+    v1 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json1,
+        content=rules_json1,
+        content_hash=c_hash1,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(v1)
+
+    # Version 2 requires Docker version >= "24.0.0"
+    rules_json2 = (
+        '{"rules": [{"id": "r1", "check": "runtime.docker.version", '
+        '"operator": "semver_gte", "expected": "24.0.0", '
+        '"severity": "medium", "description": "Docker rule"}]}'
+    )
+    c_hash2 = hashlib.sha256(rules_json2.encode("utf-8")).hexdigest()
+    v2 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=2,
+        definition_json=rules_json2,
+        content=rules_json2,
+        content_hash=c_hash2,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(v2)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift7"
+    }
+
+    # 1. Run 1 evaluates v1: PASS (device has docker 20.10.5)
+    policy.active_version_id = v1.id
+    db.commit()
+
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(v1.id),
+        "content_hash": f"sha256:{c_hash1}",
+        "findings": []
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+
+    # 2. Run 2 evaluates v2: FAIL (device has docker 20.10.5, required 24.0.0)
+    policy.active_version_id = v2.id
+    db.commit()
+
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(v2.id),
+        "content_hash": f"sha256:{c_hash2}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "runtime.docker.version",
+                "status": "FAIL",
+                "reason": "Docker version below 24.0.0",
+                "severity": "medium"
+            }
+        ]
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+
+    # Verify that the drift classification is POLICY_CHANGE_NON_COMPLIANCE
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1",
+        models.Finding.status == "OPEN"
+    ).first()
+    assert finding is not None
+    assert finding.drift_type == "POLICY_CHANGE_NON_COMPLIANCE"
+
+
+def test_outdated_policy_cannot_resolve_current_finding(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift8",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    # v4 requires Node >= 20.0.0
+    rules_v4 = (
+        '{"rules": [{"id": "r1", "check": "runtime.node.version", '
+        '"operator": "semver_gte", "expected": "20.0.0", '
+        '"severity": "medium", "description": "Node rule"}]}'
+    )
+    c_hash_v4 = hashlib.sha256(rules_v4.encode("utf-8")).hexdigest()
+    v4 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=4,
+        definition_json=rules_v4,
+        content=rules_v4,
+        content_hash=c_hash_v4,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(v4)
+
+    # v5 requires Node >= 22.0.0
+    rules_v5 = (
+        '{"rules": [{"id": "r1", "check": "runtime.node.version", '
+        '"operator": "semver_gte", "expected": "22.0.0", '
+        '"severity": "medium", "description": "Node rule"}]}'
+    )
+    c_hash_v5 = hashlib.sha256(rules_v5.encode("utf-8")).hexdigest()
+    v5 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=5,
+        definition_json=rules_v5,
+        content=rules_v5,
+        content_hash=c_hash_v5,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(v5)
+    db.commit()
+
+    # Active version is v5
+    policy.active_version_id = v5.id
+    db.commit()
+
+    # Device has Node 20.0.0, so v5 has an OPEN finding
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift8"
+    }
+
+    payload_v5 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(v5.id),
+        "content_hash": f"sha256:{c_hash_v5}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "runtime.node.version",
+                "status": "FAIL",
+                "reason": "Node version is 20.0.0, below 22.0.0",
+                "severity": "medium"
+            }
+        ]
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload_v5,
+
+        headers=headers
+
+    )
+
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1",
+        models.Finding.status == "OPEN"
+    ).first()
+    assert finding is not None
+
+    # Offline agent evaluates cached v4 and passes (empty findings)
+    payload_v4 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(v4.id),
+        "content_hash": f"sha256:{c_hash_v4}",
+        "findings": []
+    }
+    resp = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload_v4,
+
+        headers=headers
+
+    )
+    assert resp.status_code == 200
+    assert resp.json()["provenance_status"] == "OUTDATED_POLICY"
+
+    # Verify that the finding for v5 is STILL OPEN and NOT resolved!
+    db.refresh(finding)
+    assert finding.status == "OPEN"
+    assert finding.resolved_at is None
+
+
+def test_rule_removal_resolution(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift9",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    # v1 has rule r1
+    rules_json1 = (
+        '{"rules": [{"id": "r1", "check": "firewall.enabled", '
+        '"operator": "equals", "expected": true, '
+        '"severity": "medium", "description": "Firewall Rule"}]}'
+    )
+    c_hash1 = hashlib.sha256(rules_json1.encode("utf-8")).hexdigest()
+    v1 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json1,
+        content=rules_json1,
+        content_hash=c_hash1,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(v1)
+
+    # v2 has no rules (r1 was removed)
+    rules_json2 = '{"rules": []}'
+    c_hash2 = hashlib.sha256(rules_json2.encode("utf-8")).hexdigest()
+    v2 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=2,
+        definition_json=rules_json2,
+        content=rules_json2,
+        content_hash=c_hash2,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(v2)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_drift9"
+    }
+
+    # 1. Run 1: Fail r1 under v1
+    policy.active_version_id = v1.id
+    db.commit()
+
+    payload1 = {
+        "id": str(uuid.uuid4()),
+        "status": "FAIL",
+        "score": 50,
+        "timestamp": "2026-08-04T10:00:00Z",
+        "policy_version_id": str(v1.id),
+        "content_hash": f"sha256:{c_hash1}",
+        "findings": [
+            {
+                "rule_id": "r1",
+                "check_name": "firewall.enabled",
+                "status": "FAIL",
+                "reason": "Disabled",
+                "severity": "medium"
+            }
+        ]
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload1,
+
+        headers=headers
+
+    )
+
+    finding = db.query(models.Finding).filter(
+        models.Finding.device_id == device.id,
+        models.Finding.rule_id == "r1",
+        models.Finding.status == "OPEN"
+    ).first()
+    assert finding is not None
+
+    # 2. Run 2: Check-in under active v2 (rule removed)
+    policy.active_version_id = v2.id
+    db.commit()
+
+    payload2 = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": "2026-08-04T10:05:00Z",
+        "policy_version_id": str(v2.id),
+        "content_hash": f"sha256:{c_hash2}",
+        "findings": []
+    }
+    client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload2,
+
+        headers=headers
+
+    )
+
+    # Verify that the finding is resolved with reason = "POLICY_RULE_REMOVED"
+    db.refresh(finding)
+    assert finding.status == "RESOLVED"
+    assert finding.resolution_reason == "POLICY_RULE_REMOVED"
+
+    # Verify VIOLATION_RESOLVED event
+    event = db.query(models.Event).filter(
+        models.Event.device_id == device.id,
+        models.Event.type == "VIOLATION_RESOLVED"
+    ).first()
+    assert event is not None
+    assert event.rule_name == "r1"
+    assert event.finding_id == finding.id
+
+
+def test_policy_reassignment_resolution(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    p1 = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P1")
+    p2 = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P2")
+    db.add_all([p1, p2])
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_drift10",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    # Assign default to P1 initially
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+    resp1 = client.post(
+        f"/api/v1/policies/{p1.id}/assign-default",
+        headers=headers
+    )
+    assert resp1.status_code == 200
+
+    # Create active finding under P1
+    f1 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        policy_id=p1.id,
+        rule_id="r1",
+        check_name="c1",
+        status="OPEN",
+        severity="medium",
+        created_at=datetime.utcnow()
+    )
+    db.add(f1)
+    db.commit()
+
+    # Reassign default to P2
+    resp2 = client.post(
+        f"/api/v1/policies/{p2.id}/assign-default",
+        headers=headers
+    )
+    assert resp2.status_code == 200
+
+    # Verify that the finding for P1 is now RESOLVED as POLICY_REASSIGNED
+    db.refresh(f1)
+    assert f1.status == "RESOLVED"
+    assert f1.resolution_reason == "POLICY_REASSIGNED"
+    assert f1.resolved_at is not None
+
+    # Verify VIOLATION_RESOLVED event
+    event = db.query(models.Event).filter(
+        models.Event.device_id == device.id,
+        models.Event.type == "VIOLATION_RESOLVED"
+    ).first()
+    assert event is not None
+    assert event.rule_name == "r1"
+    assert event.finding_id == f1.id
+
+
+def test_checkin_idempotency_retry(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(id=uuid.uuid4(), organization_id=org.id, name="P")
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_idemp",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    rules_json = '{"rules": []}'
+    c_hash = hashlib.sha256(rules_json.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=rules_json,
+        content=rules_json,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_idemp"
+    }
+    run_id = str(uuid.uuid4())
+    payload = {
+        "id": run_id,
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}",
+        "findings": []
+    }
+
+    # First request
+    resp1 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload,
+
+        headers=headers
+
+    )
+    assert resp1.status_code == 200
+
+    # Retry request (same payload)
+    resp2 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload,
+
+        headers=headers
+
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["id"] == run_id
+
+    # Verify that same ID requested from other device is rejected 403
+    device2 = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_idemp2",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device2)
+    db.commit()
+
+    headers2 = {
+        "Device-Uuid": str(device2.id),
+        "X-Device-Token": "dev_tok_idemp2"
+    }
+    resp3 = client.post(
+
+        '/api/v1/agent/checkin',
+
+        json=payload,
+
+        headers=headers2
+
+    )
+    assert resp3.status_code == 403
+    assert "Access denied" in resp3.json()["detail"]
+
+
+def test_concurrency_race_prevention(client, db):
+    org, user = create_org_and_user(db)
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_lock",
+        status="ONLINE",
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    # Query with for update to verify SQL generation does not fail
+    locked_device = (
+        db.query(models.Device)
+        .filter(models.Device.id == device.id)
+        .with_for_update()
+        .first()
+    )
+    assert locked_device.id == device.id
