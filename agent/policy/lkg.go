@@ -131,8 +131,8 @@ func SaveLKG(filePath string, payload []byte) error {
 	return nil
 }
 
-// LoadLKG reads the stored JSON from LKG cache and returns the raw policy rules content bytes
-func LoadLKG(filePath string) ([]byte, error) {
+// LoadLKG reads the stored JSON from LKG cache and returns the complete AgentPolicyResponse object
+func LoadLKG(filePath string) (*AgentPolicyResponse, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -143,5 +143,5 @@ func LoadLKG(filePath string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to parse cached LKG policy: %w", err)
 	}
 
-	return []byte(resp.Content), nil
+	return &resp, nil
 }
