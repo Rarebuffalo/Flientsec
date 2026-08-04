@@ -222,14 +222,14 @@ func runChecksAndPost(
 	cfg *AgentConfig,
 	policyPath string,
 ) {
-	var policyData []byte
+	var activePolicy *policy.AgentPolicyResponse
 	var syncErr error
 
 	// 1. Attempt to fetch policy online
 	respBytes, err := c.GetAgentPolicy(deviceID)
 	if err == nil {
 		// Valid response. Proceed to validation.
-		_, valErr := policy.ValidatePolicy(respBytes)
+		ap, valErr := policy.ValidatePolicy(respBytes)
 		if valErr == nil {
 			// Valid! Atomic Cache Promotion.
 			if saveErr := policy.SaveLKG(policyPath, respBytes); saveErr != nil {
@@ -241,7 +241,7 @@ func runChecksAndPost(
 			} else {
 				slog.Info("Successfully synchronized and cached active policy")
 			}
-			policyData, _ = policy.LoadLKG(policyPath)
+			activePolicy = ap
 		} else {
 			slog.Error("Online policy validation failed; preserving LKG", "err", valErr)
 			syncErr = valErr
@@ -252,7 +252,7 @@ func runChecksAndPost(
 	}
 
 	// 2. If sync failed or validation failed, fallback to LKG on recoverable errors
-	if policyData == nil {
+	if activePolicy == nil {
 		isTerminal := syncErr != nil && (
 			strings.Contains(syncErr.Error(), "auth_failed") ||
 			strings.Contains(syncErr.Error(), "policy_not_assigned"))
@@ -266,10 +266,10 @@ func runChecksAndPost(
 		}
 
 		// Try loading LKG for recoverable network errors
-		lkgData, loadErr := policy.LoadLKG(policyPath)
+		ap, loadErr := policy.LoadLKG(policyPath)
 		if loadErr == nil {
 			slog.Info("Using cached last-known-good policy", "path", policyPath)
-			policyData = lkgData
+			activePolicy = ap
 		} else {
 			slog.Error(
 				"No valid last-known-good policy cache available",
@@ -309,11 +309,19 @@ func runChecksAndPost(
 		runID = fmt.Sprintf("00000000-0000-0000-0000-%012d", time.Now().Unix())
 	}
 
-	payload, err := policy.Evaluate(policyData, collectedData, runID)
+	payload, err := policy.Evaluate(
+		[]byte(activePolicy.Content),
+		collectedData,
+		runID,
+	)
 	if err != nil {
 		slog.Error("Failed to evaluate local security policy", "err", err)
 		return
 	}
+
+	// Attach evaluated policy provenance metadata
+	payload.PolicyVersionID = activePolicy.VersionID
+	payload.ContentHash = activePolicy.ContentHash
 
 	// 5. Try to flush queue first if online
 	flushRetryQueue(c, deviceID)
