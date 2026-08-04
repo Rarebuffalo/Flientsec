@@ -1,6 +1,8 @@
 import uuid
 import hashlib
 import pytest
+from datetime import datetime
+
 from sqlalchemy.exc import IntegrityError
 from app.models import models
 from alembic.config import Config
@@ -771,3 +773,390 @@ def test_agent_policy_only_published(client, db):
 
     resp = client.get("/api/v1/agent/policy", headers=headers)
     assert resp.status_code == 404
+
+
+def test_checkin_provenance_current(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy"
+    )
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0",
+        device_token="dev_tok_prov",
+        status="ONLINE"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=None
+    )
+    db.add(a)
+
+    content_str = '{"rules": []}'
+    c_hash = hashlib.sha256(content_str.encode("utf-8")).hexdigest()
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json=content_str,
+        content=content_str,
+        content_hash=c_hash,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": [],
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{c_hash}"
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["provenance_status"] == "CURRENT"
+    assert data["policy_version_id"] == str(version.id)
+
+
+def test_checkin_provenance_outdated(client, db):
+    org, user = create_org_and_user(db)
+    policy_active = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Active Policy"
+    )
+    policy_stale = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Stale Policy"
+    )
+    db.add(policy_active)
+    db.add(policy_stale)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0",
+        device_token="dev_tok_prov2",
+        status="ONLINE"
+    )
+    db.add(device)
+
+    a = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy_active.id,
+        device_id=None
+    )
+    db.add(a)
+
+    version_act = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy_active.id,
+        version_number=1,
+        definition_json="{}",
+        content="{}",
+        content_hash=hashlib.sha256(b"{}").hexdigest(),
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version_act)
+
+    content_stale = '{"rules": []}'
+    hash_stale = hashlib.sha256(content_stale.encode("utf-8")).hexdigest()
+    version_stale = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy_stale.id,
+        version_number=1,
+        definition_json=content_stale,
+        content=content_stale,
+        content_hash=hash_stale,
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version_stale)
+    db.commit()
+
+    policy_active.active_version_id = version_act.id
+    policy_stale.active_version_id = version_stale.id
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov2"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": [],
+        "policy_version_id": str(version_stale.id),
+        "content_hash": f"sha256:{hash_stale}"
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["provenance_status"] == "OUTDATED_POLICY"
+
+
+def test_checkin_provenance_cross_tenant_rejected(client, db):
+    org1, user1 = create_org_and_user(db)
+    org2 = models.Organization(id=uuid.uuid4(), name="Org 2")
+    db.add(org2)
+    user2 = models.User(
+        id=uuid.uuid4(),
+        email="test2@flientsec.local",
+        hashed_password="pw"
+    )
+    db.add(user2)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org1.id,
+        hostname="Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0",
+        device_token="dev_tok_prov3",
+        status="ONLINE"
+    )
+    db.add(device)
+
+    policy_org2 = models.Policy(
+        id=uuid.uuid4(), organization_id=org2.id, name="Org2 Policy"
+    )
+    db.add(policy_org2)
+    db.commit()
+
+    version_org2 = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy_org2.id,
+        version_number=1,
+        definition_json="{}",
+        content="{}",
+        content_hash=hashlib.sha256(b"{}").hexdigest(),
+        status="PUBLISHED",
+        created_by=user2.id
+    )
+    db.add(version_org2)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov3"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": [],
+        "policy_version_id": str(version_org2.id),
+        "content_hash": f"sha256:{version_org2.content_hash}"
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 400
+    assert "tenant mismatch" in resp.json()["detail"].lower()
+
+
+def test_checkin_provenance_hash_mismatch_rejected(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy"
+    )
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_prov4",
+        status="ONLINE",
+        hostname="Laptop", os_name="Linux", os_version="Ubuntu",
+        os_arch="amd64", kernel_version="6.5.0", agent_version="1.0.0"
+    )
+    db.add(device)
+
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json="{}",
+        content="{}",
+        content_hash=hashlib.sha256(b"{}").hexdigest(),
+        status="PUBLISHED",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov4"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": [],
+        "policy_version_id": str(version.id),
+        "content_hash": "sha256:badhash"
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 400
+    assert "content hash mismatch" in resp.json()["detail"].lower()
+
+
+def test_checkin_provenance_unknown_version_rejected(client, db):
+    org, user = create_org_and_user(db)
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_prov5",
+        status="ONLINE",
+        hostname="Laptop", os_name="Linux", os_version="Ubuntu",
+        os_arch="amd64", kernel_version="6.5.0", agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov5"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": [],
+        "policy_version_id": str(uuid.uuid4()),
+        "content_hash": "sha256:somehash"
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 400
+    assert "Invalid policy version" in resp.json()["detail"]
+
+
+def test_checkin_provenance_draft_rejected(client, db):
+    org, user = create_org_and_user(db)
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Policy"
+    )
+    db.add(policy)
+    db.commit()
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_prov6",
+        status="ONLINE",
+        hostname="Laptop", os_name="Linux", os_version="Ubuntu",
+        os_arch="amd64", kernel_version="6.5.0", agent_version="1.0.0"
+    )
+    db.add(device)
+
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=1,
+        definition_json="{}",
+        content="{}",
+        content_hash=hashlib.sha256(b"{}").hexdigest(),
+        status="DRAFT",
+        created_by=user.id
+    )
+    db.add(version)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov6"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": [],
+        "policy_version_id": str(version.id),
+        "content_hash": f"sha256:{version.content_hash}"
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 400
+    assert "Invalid policy version" in resp.json()["detail"]
+
+
+def test_checkin_provenance_missing_rejected(client, db):
+    org, user = create_org_and_user(db)
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_prov7",
+        status="ONLINE",
+        hostname="Laptop", os_name="Linux", os_version="Ubuntu",
+        os_arch="amd64", kernel_version="6.5.0", agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_prov7"
+    }
+
+    payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": []
+    }
+
+    resp = client.post("/api/v1/agent/checkin", json=payload, headers=headers)
+    assert resp.status_code == 400
+    assert "Missing required policy version" in resp.json()["detail"]
