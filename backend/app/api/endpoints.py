@@ -342,12 +342,30 @@ def agent_checkin(
 ):
     device = verify_device_token(device_uuid, x_device_token, db)
 
-    # Fetch previous failed check rule names to determine transitions
-    prev_failed_rules = {
-        f.check_name for f in device.findings if f.status == "Open"
-    }
+    # 1. Idempotency Check
+    existing_run = (
+        db.query(models.CheckRun)
+        .filter(models.CheckRun.id == checkrun_in.id)
+        .first()
+    )
+    if existing_run:
+        # Scope validation: verify it belongs to the authenticated device
+        if existing_run.device_id != device.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to requested checkrun record."
+            )
+        return existing_run
 
-    # Provenance Validation
+    # 2. Acquire exclusive write-lock on Device to serialize telemetry
+    device = (
+        db.query(models.Device)
+        .filter(models.Device.id == device.id)
+        .with_for_update()
+        .first()
+    )
+
+    # 3. Provenance Validation
     prov_status = None
     if (checkrun_in.policy_version_id is None or
             checkrun_in.content_hash is None):
@@ -428,84 +446,184 @@ def agent_checkin(
     )
     db.add(check_run)
 
-    # Re-evaluate active findings linked to this device
-    new_failed_rules = set()
-    for f_in in checkrun_in.findings:
-        # Create or update active finding
-        finding = (
-            db.query(models.Finding)
-            .filter(
-                models.Finding.device_id == device.id,
-                models.Finding.check_name == f_in.check_name,
-                models.Finding.status == "Open",
-            )
-            .first()
-        )
+    # 4. State Machine / Findings Updates: CURRENT only
+    if prov_status == "CURRENT":
+        # Extract evaluated rules from the policy version JSON/YAML
+        import json as py_json
+        try:
+            policy_data = py_json.loads(version.definition_json)
+            rules_list = policy_data.get("rules", [])
+        except Exception:
+            rules_list = []
 
-        if not finding:
-            finding = models.Finding(
-                id=uuid.uuid4(),
-                device_id=device.id,
-                check_name=f_in.check_name,
-                severity=f_in.severity,
-                status="Open",
-                reason=f_in.reason,
-                created_at=datetime.utcnow(),
-            )
-            db.add(finding)
-        else:
-            finding.reason = f_in.reason
+        # Dict mapping rule_id -> parsed rule configuration dict
+        evaluated_rules = {r.get("id"): r for r in rules_list if r.get("id")}
 
-        new_failed_rules.add(f_in.check_name)
+        # Process reported failures
+        new_failed_rules = set()
+        for f_in in checkrun_in.findings:
+            rule_id = f_in.rule_id
+            new_failed_rules.add(rule_id)
 
-    # Resolve findings no longer reported
-    for check_name in prev_failed_rules:
-        if check_name not in new_failed_rules:
+            # Query existing active OPEN finding
             finding = (
                 db.query(models.Finding)
                 .filter(
                     models.Finding.device_id == device.id,
-                    models.Finding.check_name == check_name,
-                    models.Finding.status == "Open",
+                    models.Finding.policy_id == version.policy_id,
+                    models.Finding.rule_id == rule_id,
+                    models.Finding.status == "OPEN",
                 )
                 .first()
             )
+
             if finding:
-                finding.status = "Resolved"
-                finding.resolved_at = datetime.utcnow()
+                finding.last_detected_at = datetime.utcnow()
+                finding.reason = f_in.reason
+            else:
+                # Classify drift type
+                drift_type = None
 
-    # Process events based on diffs
-    all_monitored_rules = prev_failed_rules.union(new_failed_rules)
-    for rule in all_monitored_rules:
-        if rule in new_failed_rules and rule not in prev_failed_rules:
-            # Trigger Event
-            event_msg = (
-                f"Violation triggered: {rule.capitalize()} policy failed."
-            )
-            event = models.Event(
-                device_id=device.id,
-                type="VIOLATION_TRIGGERED",
-                rule_name=rule,
-                message=event_msg,
-                timestamp=datetime.utcnow(),
-            )
-            db.add(event)
-        elif rule not in new_failed_rules and rule in prev_failed_rules:
-            # Resolved Event
-            event_msg = (
-                f"Violation resolved: {rule.capitalize()} "
-                "policy is now compliant."
-            )
-            event = models.Event(
-                device_id=device.id,
-                type="VIOLATION_RESOLVED",
-                rule_name=rule,
-                message=event_msg,
-                timestamp=datetime.utcnow(),
-            )
-            db.add(event)
+                # Find previous run before current run timestamp
+                prev_run = (
+                    db.query(models.CheckRun)
+                    .filter(
+                        models.CheckRun.device_id == device.id,
+                        models.CheckRun.timestamp < checkrun_in.timestamp
+                    )
+                    .order_by(models.CheckRun.timestamp.desc())
+                    .first()
+                )
 
-    # Update Device stats
+                if prev_run:
+                    if prev_run.policy_version_id == version.id:
+                        drift_type = "DEVICE_DRIFT"
+                    else:
+                        # Fetch and parse previous policy version
+                        prev_ver = (
+                            db.query(models.PolicyVersion)
+                            .filter(
+                                models.PolicyVersion.id == (
+                                    prev_run.policy_version_id
+                                )
+                            )
+                            .first()
+                        )
+                        prev_rules = {}
+                        if prev_ver:
+                            try:
+                                prev_policy_data = py_json.loads(
+                                    prev_ver.definition_json
+                                )
+                                for r in prev_policy_data.get("rules", []):
+                                    if r.get("id"):
+                                        prev_rules[r.get("id")] = r
+                            except Exception:
+                                pass
+
+                        old_rule = prev_rules.get(rule_id)
+                        new_rule = evaluated_rules.get(rule_id)
+
+                        if not old_rule:
+                            # Rule did not exist in old version
+                            drift_type = "POLICY_CHANGE_NON_COMPLIANCE"
+                        else:
+                            # Compare enforcement fields
+                            is_diff = False
+                            for key in ["check", "operator", "expected"]:
+                                if old_rule.get(key) != new_rule.get(key):
+                                    is_diff = True
+                                    break
+                            if is_diff:
+                                drift_type = "POLICY_CHANGE_NON_COMPLIANCE"
+                            else:
+                                drift_type = "DEVICE_DRIFT"
+                else:
+                    drift_type = None
+
+                finding = models.Finding(
+                    id=uuid.uuid4(),
+                    device_id=device.id,
+                    policy_id=version.policy_id,
+                    rule_id=rule_id,
+                    check_name=f_in.check_name,
+                    severity=f_in.severity,
+                    status="OPEN",
+                    reason=f_in.reason,
+                    drift_type=drift_type,
+                    first_detected_at=datetime.utcnow(),
+                    last_detected_at=datetime.utcnow(),
+                )
+                db.add(finding)
+                db.flush()  # Populates finding.id for event ForeignKey
+
+                # Trigger Event
+                event = models.Event(
+                    device_id=device.id,
+                    type="VIOLATION_TRIGGERED",
+                    rule_name=rule_id,
+                    message=f"Violation triggered: Rule {rule_id} failed.",
+                    timestamp=datetime.utcnow(),
+                    finding_id=finding.id,
+                    policy_version_id=version.id
+                )
+                db.add(event)
+
+        # Process resolved and removed rules
+        open_findings = (
+            db.query(models.Finding)
+            .filter(
+                models.Finding.device_id == device.id,
+                models.Finding.policy_id == version.policy_id,
+                models.Finding.status == "OPEN",
+            )
+            .all()
+        )
+
+        for f in open_findings:
+            rule_id = f.rule_id
+            if rule_id not in new_failed_rules:
+                # Determine if rule was evaluated or removed
+                if rule_id in evaluated_rules:
+                    # Evaluated but did not fail -> REMEDIATED
+                    f.status = "RESOLVED"
+                    f.resolved_at = datetime.utcnow()
+                    f.resolution_reason = "REMEDIATED"
+
+                    event = models.Event(
+                        device_id=device.id,
+                        type="VIOLATION_RESOLVED",
+                        rule_name=rule_id,
+                        message=(
+                            f"Violation resolved: Rule {rule_id} is "
+                            "now compliant."
+                        ),
+                        timestamp=datetime.utcnow(),
+                        finding_id=f.id,
+                        policy_version_id=version.id
+                    )
+                    db.add(event)
+                else:
+                    # Not present in desired version -> POLICY_RULE_REMOVED
+                    f.status = "RESOLVED"
+                    f.resolved_at = datetime.utcnow()
+                    f.resolution_reason = "POLICY_RULE_REMOVED"
+
+                    event = models.Event(
+                        device_id=device.id,
+                        type="VIOLATION_RESOLVED",
+                        rule_name=rule_id,
+                        message=(
+                            f"Violation resolved: Rule {rule_id} was "
+                            "removed from the policy."
+                        ),
+                        timestamp=datetime.utcnow(),
+                        finding_id=f.id,
+                        policy_version_id=version.id
+                    )
+                    db.add(event)
+
+    # 5. Update Device stats
     device.status = "ONLINE"
     device.compliance_status = checkrun_in.status
     device.compliance_score = checkrun_in.score
@@ -1178,6 +1296,50 @@ def assign_default_policy(
         )
         db.add(assignment)
 
+    # Control-plane finding resolution for all devices impacted by this change
+    impacted_devices = (
+        db.query(models.Device)
+        .filter(
+            models.Device.organization_id == policy.organization_id,
+            ~models.Device.id.in_(
+                db.query(models.PolicyAssignment.device_id)
+                .filter(
+                    models.PolicyAssignment.organization_id == (
+                        policy.organization_id
+                    ),
+                    models.PolicyAssignment.device_id.is_not(None)
+                )
+            )
+        )
+        .all()
+    )
+    for dev in impacted_devices:
+        old_findings = (
+            db.query(models.Finding)
+            .filter(
+                models.Finding.device_id == dev.id,
+                models.Finding.policy_id != policy.id,
+                models.Finding.status == "OPEN"
+            )
+            .all()
+        )
+        for f in old_findings:
+            f.status = "RESOLVED"
+            f.resolved_at = datetime.utcnow()
+            f.resolution_reason = "POLICY_REASSIGNED"
+            event = models.Event(
+                device_id=dev.id,
+                type="VIOLATION_RESOLVED",
+                rule_name=f.rule_id,
+                message=(
+                    f"Violation resolved: Rule {f.rule_id} is part of a "
+                    "previous policy that was reassigned."
+                ),
+                timestamp=datetime.utcnow(),
+                finding_id=f.id
+            )
+            db.add(event)
+
     db.commit()
     db.refresh(assignment)
     return assignment
@@ -1239,6 +1401,33 @@ def assign_device_policy(
             device_id=device.id
         )
         db.add(assignment)
+
+    # Control-plane finding resolution for this specific device
+    old_findings = (
+        db.query(models.Finding)
+        .filter(
+            models.Finding.device_id == device.id,
+            models.Finding.policy_id != policy.id,
+            models.Finding.status == "OPEN"
+        )
+        .all()
+    )
+    for f in old_findings:
+        f.status = "RESOLVED"
+        f.resolved_at = datetime.utcnow()
+        f.resolution_reason = "POLICY_REASSIGNED"
+        event = models.Event(
+            device_id=device.id,
+            type="VIOLATION_RESOLVED",
+            rule_name=f.rule_id,
+            message=(
+                f"Violation resolved: Rule {f.rule_id} is part of a "
+                "previous policy that was reassigned."
+            ),
+            timestamp=datetime.utcnow(),
+            finding_id=f.id
+        )
+        db.add(event)
 
     db.commit()
     db.refresh(assignment)
