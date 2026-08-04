@@ -17,6 +17,15 @@ def create_org_and_user(db):
     )
     db.add(user)
     db.commit()
+
+    member = models.Member(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        organization_id=org.id,
+        role="owner"
+    )
+    db.add(member)
+    db.commit()
     return org, user
 
 
@@ -300,3 +309,173 @@ def test_alembic_upgrade_downgrade():
 
     # Upgrade to head
     command.upgrade(alembic_cfg, "head")
+
+
+def test_assign_default_policy_api(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Org Policy"
+    )
+    db.add(policy)
+    db.commit()
+
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Assign default policy via API
+    resp = client.post(
+        f"/api/v1/policies/{policy.id}/assign-default",
+        headers=headers
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["policy_id"] == str(policy.id)
+    assert data["device_id"] is None
+    assert data["organization_id"] == str(org.id)
+
+    # 2. Assigning again updates/returns existing
+    resp2 = client.post(
+        f"/api/v1/policies/{policy.id}/assign-default",
+        headers=headers
+    )
+    assert resp2.status_code == 200
+
+
+def test_assign_device_policy_api(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    policy = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Device Policy"
+    )
+    db.add(policy)
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        hostname="Dev Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Assign device policy via API
+    resp = client.post(
+        f"/api/v1/policies/{policy.id}/assign-device/{device.id}",
+        headers=headers
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["policy_id"] == str(policy.id)
+    assert data["device_id"] == str(device.id)
+    assert data["organization_id"] == str(org.id)
+
+
+def test_effective_policy_resolution_api(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+
+    # Create two policies
+    p_default = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Default Policy"
+    )
+    p_override = models.Policy(
+        id=uuid.uuid4(), organization_id=org.id, name="Override Policy"
+    )
+    db.add(p_default)
+    db.add(p_override)
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        hostname="Dev Laptop",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Query effective policy when none assigned -> 404
+    resp = client.get(
+        f"/api/v1/devices/{device.id}/effective-policy",
+        headers=headers
+    )
+    assert resp.status_code == 404
+    assert "No policy assigned" in resp.json()["detail"]
+
+    # 2. Assign default policy and verify effective matches default
+    client.post(
+        f"/api/v1/policies/{p_default.id}/assign-default",
+        headers=headers
+    )
+    resp = client.get(
+        f"/api/v1/devices/{device.id}/effective-policy",
+        headers=headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(p_default.id)
+
+    # 3. Assign device override and verify effective matches override
+    client.post(
+        f"/api/v1/policies/{p_override.id}/assign-device/{device.id}",
+        headers=headers
+    )
+    resp = client.get(
+        f"/api/v1/devices/{device.id}/effective-policy",
+        headers=headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(p_override.id)
+
+
+def test_policy_assignment_cross_org_rejection(client, db):
+    from app.core import security
+    org1, user1 = create_org_and_user(db)
+
+    # Second org and user
+    org2 = models.Organization(id=uuid.uuid4(), name="Other Org")
+    db.add(org2)
+    user2 = models.User(
+        id=uuid.uuid4(),
+        email="other@flientsec.local",
+        hashed_password="pw"
+    )
+    db.add(user2)
+    db.commit()
+
+    # User 1 has policy 1
+    p1 = models.Policy(
+        id=uuid.uuid4(), organization_id=org1.id, name="Policy 1"
+    )
+    db.add(p1)
+
+    # Policy 2 belongs to Org 2
+    p2 = models.Policy(
+        id=uuid.uuid4(), organization_id=org2.id, name="Policy 2"
+    )
+    db.add(p2)
+    db.commit()
+
+    # Authenticate as user 1
+    token = security.create_access_token(subject=user1.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. User 1 attempts to assign policy 2 (Org 2) -> 404
+    resp = client.post(
+        f"/api/v1/policies/{p2.id}/assign-default",
+        headers=headers
+    )
+    assert resp.status_code == 404
