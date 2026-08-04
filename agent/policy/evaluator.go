@@ -40,11 +40,13 @@ type Finding struct {
 }
 
 type CheckRunPayload struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"` // PASS / FAIL / WARN
-	Score     int       `json:"score"`
-	Timestamp string    `json:"timestamp"`
-	Findings  []Finding `json:"findings"`
+	ID              string    `json:"id"`
+	Status          string    `json:"status"` // PASS / FAIL / WARN
+	Score           int       `json:"score"`
+	Timestamp       string    `json:"timestamp"`
+	Findings        []Finding `json:"findings"`
+	PolicyVersionID string    `json:"policy_version_id,omitempty"`
+	ContentHash     string    `json:"content_hash,omitempty"`
 }
 
 // Evaluate matches raw check results against the active YAML policy configuration conforming to Schema v1
