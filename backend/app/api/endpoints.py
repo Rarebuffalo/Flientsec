@@ -1259,6 +1259,103 @@ def get_effective_policy(
     return policy
 
 
+def get_current_device(
+    device_uuid: str = Header(..., alias="Device-Uuid"),
+    x_device_token: str = Header(..., alias="X-Device-Token"),
+    db: Session = Depends(get_db),
+) -> models.Device:
+    return verify_device_token(device_uuid, x_device_token, db)
+
+
+@router.get(
+    "/agent/policy",
+    response_model=schemas.AgentPolicyResponse,
+)
+def get_agent_policy(
+    db: Session = Depends(get_db),
+    device: models.Device = Depends(get_current_device),
+):
+    # Resolve active policy:
+    # 1. Device override
+    assignment = (
+        db.query(models.PolicyAssignment)
+        .filter(
+            models.PolicyAssignment.device_id == device.id
+        )
+        .first()
+    )
+
+    # 2. Organization default fallback
+    if not assignment:
+        assignment = (
+            db.query(models.PolicyAssignment)
+            .filter(
+                models.PolicyAssignment.organization_id == (
+                    device.organization_id
+                ),
+                models.PolicyAssignment.device_id.is_(None)
+            )
+            .first()
+        )
+
+    if not assignment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No policy assigned to this device or organization"
+        )
+
+    policy = (
+        db.query(models.Policy)
+        .filter(models.Policy.id == assignment.policy_id)
+        .first()
+    )
+    if not policy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assigned policy not found"
+        )
+
+    # Resolve active published version
+    if not policy.active_version_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assigned policy has no active version"
+        )
+
+    version = (
+        db.query(models.PolicyVersion)
+        .filter(
+            models.PolicyVersion.id == policy.active_version_id,
+            models.PolicyVersion.policy_id == policy.id,
+            models.PolicyVersion.status == "PUBLISHED"
+        )
+        .first()
+    )
+
+    if not version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Active policy version is not published or not found"
+        )
+
+    # Return response contract
+    # Content hash format must be prefixed with "sha256:"
+    content_hash_val = version.content_hash or ""
+    if not content_hash_val.startswith("sha256:"):
+        content_hash_val = f"sha256:{content_hash_val}"
+
+    return {
+        "policy_id": policy.id,
+        "policy_name": policy.name,
+        "version_id": version.id,
+        "version_number": version.version_number,
+        "schema_version": 1,
+        "content": version.content or "",
+        "content_hash": content_hash_val,
+        "issued_at": version.created_at
+    }
+
+
 @router.get("/reports/export")
 def export_csv_report(
     db: Session = Depends(get_db),
