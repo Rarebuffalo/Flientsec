@@ -30,6 +30,7 @@ type AgentConfig struct {
 	Interval          int             `yaml:"interval"`
 	HeartbeatInterval int             `yaml:"heartbeat_interval"`
 	UUIDFilePath      string          `yaml:"uuid_file_path"`
+	PolicyFilePath    string          `yaml:"policy_file_path"`
 	Checks            map[string]bool `yaml:"checks"`
 }
 
@@ -100,9 +101,19 @@ func main() {
 	slog.Info("Starting background heartbeat dispatcher...", "interval_sec", cfg.HeartbeatInterval)
 	startHeartbeatLoop(apiClient, deviceUUID, cfg.HeartbeatInterval)
 
+	// Determine policy path
+	policyPath := cfg.PolicyFilePath
+	if policyPath == "" {
+		policyPath = "/var/lib/flientsec/policy.json"
+		// If directory is not writeable, use relative policy.json
+		if err := os.MkdirAll("/var/lib/flientsec", 0700); err != nil {
+			policyPath = "policy.json"
+		}
+	}
+
 	// Execute initial compliance check run
 	slog.Info("Executing startup posture evaluation...")
-	runChecksAndPost(apiClient, deviceUUID, cfg)
+	runChecksAndPost(apiClient, deviceUUID, cfg, policyPath)
 
 	// Run main check-in ticker loop
 	slog.Info("Entering posture evaluation daemon loop...", "interval_sec", cfg.Interval)
@@ -110,7 +121,7 @@ func main() {
 
 	for range checkTicker.C {
 		slog.Info("Triggering periodic check-in run...")
-		runChecksAndPost(apiClient, deviceUUID, cfg)
+		runChecksAndPost(apiClient, deviceUUID, cfg, policyPath)
 	}
 }
 
@@ -205,13 +216,70 @@ func startHeartbeatLoop(c *client.Client, deviceID string, intervalSecs int) {
 	}()
 }
 
-func runChecksAndPost(c *client.Client, deviceID string, cfg *AgentConfig) {
-	policyData, err := c.GetPolicy(deviceID)
-	if err != nil {
-		slog.Warn("Failed to fetch active policy from backend. Falling back to default policy rules", "err", err)
+func runChecksAndPost(
+	c *client.Client,
+	deviceID string,
+	cfg *AgentConfig,
+	policyPath string,
+) {
+	var policyData []byte
+	var syncErr error
+
+	// 1. Attempt to fetch policy online
+	respBytes, err := c.GetAgentPolicy(deviceID)
+	if err == nil {
+		// Valid response. Proceed to validation.
+		_, valErr := policy.ValidatePolicy(respBytes)
+		if valErr == nil {
+			// Valid! Atomic Cache Promotion.
+			if saveErr := policy.SaveLKG(policyPath, respBytes); saveErr != nil {
+				slog.Error(
+					"Failed to save policy to LKG cache",
+					"path", policyPath,
+					"err", saveErr,
+				)
+			} else {
+				slog.Info("Successfully synchronized and cached active policy")
+			}
+			policyData, _ = policy.LoadLKG(policyPath)
+		} else {
+			slog.Error("Online policy validation failed; preserving LKG", "err", valErr)
+			syncErr = valErr
+		}
+	} else {
+		slog.Warn("Online policy synchronization failed", "err", err)
+		syncErr = err
 	}
 
-	// 2. Execute raw checks run
+	// 2. If sync failed or validation failed, fallback to LKG on recoverable errors
+	if policyData == nil {
+		isTerminal := syncErr != nil && (
+			strings.Contains(syncErr.Error(), "auth_failed") ||
+			strings.Contains(syncErr.Error(), "policy_not_assigned"))
+
+		if isTerminal {
+			slog.Error(
+				"Terminal policy sync error. Evaluation skipped.",
+				"err", syncErr,
+			)
+			return
+		}
+
+		// Try loading LKG for recoverable network errors
+		lkgData, loadErr := policy.LoadLKG(policyPath)
+		if loadErr == nil {
+			slog.Info("Using cached last-known-good policy", "path", policyPath)
+			policyData = lkgData
+		} else {
+			slog.Error(
+				"No valid last-known-good policy cache available",
+				"err", loadErr,
+			)
+			return
+		}
+	}
+
+	// 3. Execute raw checks run
 	collectedData := make(map[string]checks.CheckResult)
 	for name, check := range checks.Registry {
 		// Verify if check is enabled in local agent config
@@ -229,7 +297,7 @@ func runChecksAndPost(c *client.Client, deviceID string, cfg *AgentConfig) {
 		collectedData[name] = res
 	}
 
-	// 3. Perform local evaluation
+	// 4. Perform local evaluation
 	runID := ""
 	b := make([]byte, 16)
 	_, uuidErr := rand.Read(b)
@@ -247,10 +315,10 @@ func runChecksAndPost(c *client.Client, deviceID string, cfg *AgentConfig) {
 		return
 	}
 
-	// 4. Try to flush queue first if online
+	// 5. Try to flush queue first if online
 	flushRetryQueue(c, deviceID)
 
-	// 5. Send telemetry findings to server
+	// 6. Send telemetry findings to server
 	slog.Info("Posting check-in findings to server...", "status", payload.Status, "score", payload.Score)
 	err = c.SendCheckin(deviceID, payload)
 	if err != nil {
