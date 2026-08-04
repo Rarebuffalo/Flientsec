@@ -149,8 +149,8 @@ func TestSyncSuccessPromotesLKG(t *testing.T) {
 		t.Fatalf("expected LoadLKG to succeed, got: %v", loadErr)
 	}
 
-	if string(data) != content {
-		t.Errorf("expected loaded content to be %s, got: %s", content, string(data))
+	if data.Content != content {
+		t.Errorf("expected loaded content to be %s, got: %s", content, data.Content)
 	}
 }
 
@@ -198,8 +198,8 @@ func TestSyncHashMismatchPreservesLKG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadLKG failed: %v", err)
 	}
-	if string(data) != initialContent {
-		t.Errorf("LKG was modified! Got %s", string(data))
+	if data.Content != initialContent {
+		t.Errorf("LKG was modified! Got %s", data.Content)
 	}
 }
 
@@ -243,7 +243,7 @@ func TestSyncMalformedSchemaV1PreservesLKG(t *testing.T) {
 	}
 
 	data, _ := LoadLKG(policyPath)
-	if string(data) != initialContent {
+	if data.Content != initialContent {
 		t.Errorf("LKG was overwritten by invalid policy!")
 	}
 }
@@ -292,9 +292,53 @@ func TestAtomicRenameSuccess(t *testing.T) {
 	}
 }
 
+func TestLoadLKGReturnsProvenance(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	content := `{"schema_version": 1, "metadata": {"name": "Test"}, "rules": []}`
+	versionID := "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39"
+	cHash := computeHash(content)
+
+	payload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test Policy",
+		"version_id": %q,
+		"version_number": 3,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T12:00:00Z"
+	}`, versionID, content, cHash)
+
+	if err := SaveLKG(policyPath, []byte(payload)); err != nil {
+		t.Fatalf("expected SaveLKG to succeed, got: %v", err)
+	}
+
+	ap, err := LoadLKG(policyPath)
+	if err != nil {
+		t.Fatalf("expected LoadLKG to succeed, got: %v", err)
+	}
+
+	if ap.VersionID != versionID {
+		t.Errorf("expected VersionID %q, got: %q", versionID, ap.VersionID)
+	}
+
+	if ap.ContentHash != cHash {
+		t.Errorf("expected ContentHash %q, got: %q", cHash, ap.ContentHash)
+	}
+
+	if ap.Content != content {
+		t.Errorf("expected Content %q, got: %q", content, ap.Content)
+	}
+}
+
 func computeHash(data string) string {
 	h := sha256.New()
 	h.Write([]byte(data))
 	return hex.EncodeToString(h.Sum(nil))
 }
-
