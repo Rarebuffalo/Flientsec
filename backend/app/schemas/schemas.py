@@ -98,6 +98,7 @@ class FindingResponse(BaseModel):
     first_detected_at: datetime
     last_detected_at: datetime
     resolved_at: Optional[datetime] = None
+    drift_type: Optional[str] = None
 
     class Config:
         from_attributes = True
