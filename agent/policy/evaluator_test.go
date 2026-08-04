@@ -1,6 +1,11 @@
 package policy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"flientsec-agent/checks"
@@ -103,3 +108,193 @@ func stringsContains(str, substr string) bool {
 	}
 	return false
 }
+
+
+func TestSyncSuccessPromotesLKG(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	content := `{"schema_version": 1, "metadata": {"name": "LKG Policy"}, "rules": []}`
+	h := sha256.New()
+	h.Write([]byte(content))
+	cHash := hex.EncodeToString(h.Sum(nil))
+
+	payload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 1,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T12:00:00Z"
+	}`, content, cHash)
+
+	_, valErr := ValidatePolicy([]byte(payload))
+	if valErr != nil {
+		t.Fatalf("expected payload validation to succeed, got: %v", valErr)
+	}
+
+	err = SaveLKG(policyPath, []byte(payload))
+	if err != nil {
+		t.Fatalf("expected SaveLKG to succeed, got: %v", err)
+	}
+
+	data, loadErr := LoadLKG(policyPath)
+	if loadErr != nil {
+		t.Fatalf("expected LoadLKG to succeed, got: %v", loadErr)
+	}
+
+	if string(data) != content {
+		t.Errorf("expected loaded content to be %s, got: %s", content, string(data))
+	}
+}
+
+func TestSyncHashMismatchPreservesLKG(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	initialContent := `{"schema_version": 1, "metadata": {"name": "Initial"}, "rules": []}`
+	initPayload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 1,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T12:00:00Z"
+	}`, initialContent, computeHash(initialContent))
+
+	if err := SaveLKG(policyPath, []byte(initPayload)); err != nil {
+		t.Fatalf("SaveLKG failed: %v", err)
+	}
+
+	badPayload := `{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 2,
+		"schema_version": 1,
+		"content": "modified rules",
+		"content_hash": "badhash",
+		"issued_at": "2026-08-04T13:00:00Z"
+	}`
+
+	_, valErr := ValidatePolicy([]byte(badPayload))
+	if valErr == nil {
+		t.Fatal("expected validation to fail due to hash mismatch")
+	}
+
+	data, err := LoadLKG(policyPath)
+	if err != nil {
+		t.Fatalf("LoadLKG failed: %v", err)
+	}
+	if string(data) != initialContent {
+		t.Errorf("LKG was modified! Got %s", string(data))
+	}
+}
+
+func TestSyncMalformedSchemaV1PreservesLKG(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	initialContent := `{"schema_version": 1, "metadata": {"name": "Initial"}, "rules": []}`
+	initPayload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 1,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T12:00:00Z"
+	}`, initialContent, computeHash(initialContent))
+
+	_ = SaveLKG(policyPath, []byte(initPayload))
+
+	malformedContent := `{"schema_version": 1, "rules": [{"id": ""}]}`
+	malformedPayload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 2,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T13:00:00Z"
+	}`, malformedContent, computeHash(malformedContent))
+
+	_, valErr := ValidatePolicy([]byte(malformedPayload))
+	if valErr == nil {
+		t.Fatal("expected validation to fail for malformed rules content")
+	}
+
+	data, _ := LoadLKG(policyPath)
+	if string(data) != initialContent {
+		t.Errorf("LKG was overwritten by invalid policy!")
+	}
+}
+
+func TestSyncUnsupportedSchemaVersion(t *testing.T) {
+	unsupportedContent := `{"schema_version": 2, "rules": []}`
+	payload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Test",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 2,
+		"schema_version": 2,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T13:00:00Z"
+	}`, unsupportedContent, computeHash(unsupportedContent))
+
+	_, valErr := ValidatePolicy([]byte(payload))
+	if valErr == nil {
+		t.Fatal("expected validation to fail for unsupported schema version 2")
+	}
+}
+
+func TestAtomicRenameSuccess(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	payload := `{"policy_id": "1", "content": "{}", "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}`
+	err = SaveLKG(policyPath, []byte(payload))
+	if err != nil {
+		t.Fatalf("expected save to succeed: %v", err)
+	}
+
+	fi, err := os.Stat(policyPath)
+	if err != nil {
+		t.Fatalf("failed to stat: %v", err)
+	}
+
+	mode := fi.Mode().Perm()
+	if mode != 0600 {
+		t.Errorf("expected permissions 0600, got: %v", mode)
+	}
+}
+
+func computeHash(data string) string {
+	h := sha256.New()
+	h.Write([]byte(data))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
