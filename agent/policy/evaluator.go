@@ -33,10 +33,11 @@ type SchemaV1Policy struct {
 type Policy SchemaV1Policy
 
 type Finding struct {
-	RuleName string `json:"rule_name"` // rule.id (stable rule identity)
-	Status   string `json:"status"`    // FAIL / WARN
-	Message  string `json:"message"`   // rule.description
-	Severity string `json:"severity"`
+	RuleID    string `json:"rule_id"`
+	CheckName string `json:"check_name"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason"`
+	Severity  string `json:"severity"`
 }
 
 type CheckRunPayload struct {
@@ -103,10 +104,11 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 					}
 					if active != expectedBool {
 						findings = append(findings, Finding{
-							RuleName: rule.ID,
-							Status:   "FAIL",
-							Message:  rule.Description,
-							Severity: normalizeSeverity(rule.Severity),
+							RuleID:    rule.ID,
+							CheckName: rule.Check,
+							Status:    "FAIL",
+							Reason:    rule.Description,
+							Severity:  normalizeSeverity(rule.Severity),
 						})
 						score -= getPenalty(rule.Severity)
 					}
@@ -123,10 +125,11 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 					}
 					if isEncrypted != expectedBool {
 						findings = append(findings, Finding{
-							RuleName: rule.ID,
-							Status:   "FAIL",
-							Message:  rule.Description,
-							Severity: normalizeSeverity(rule.Severity),
+							RuleID:    rule.ID,
+							CheckName: rule.Check,
+							Status:    "FAIL",
+							Reason:    rule.Description,
+							Severity:  normalizeSeverity(rule.Severity),
 						})
 						score -= getPenalty(rule.Severity)
 					}
@@ -142,10 +145,11 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 					}
 					if active != expectedBool {
 						findings = append(findings, Finding{
-							RuleName: rule.ID,
-							Status:   "FAIL",
-							Message:  rule.Description,
-							Severity: normalizeSeverity(rule.Severity),
+							RuleID:    rule.ID,
+							CheckName: rule.Check,
+							Status:    "FAIL",
+							Reason:    rule.Description,
+							Severity:  normalizeSeverity(rule.Severity),
 						})
 						score -= getPenalty(rule.Severity)
 					}
@@ -165,10 +169,11 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 					if okInt {
 						if pending > expectedInt {
 							findings = append(findings, Finding{
-								RuleName: rule.ID,
-								Status:   "WARN",
-								Message:  rule.Description,
-								Severity: normalizeSeverity(rule.Severity),
+								RuleID:    rule.ID,
+								CheckName: rule.Check,
+								Status:    "WARN",
+								Reason:    rule.Description,
+								Severity:  normalizeSeverity(rule.Severity),
 							})
 							score -= getPenalty(rule.Severity)
 						}
@@ -176,10 +181,11 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 						expectedBool, okBool := rule.Expected.(bool)
 						if okBool && !expectedBool && pending > 0 {
 							findings = append(findings, Finding{
-								RuleName: rule.ID,
-								Status:   "WARN",
-								Message:  rule.Description,
-								Severity: normalizeSeverity(rule.Severity),
+								RuleID:    rule.ID,
+								CheckName: rule.Check,
+								Status:    "WARN",
+								Reason:    rule.Description,
+								Severity:  normalizeSeverity(rule.Severity),
 							})
 							score -= getPenalty(rule.Severity)
 						}
@@ -197,20 +203,22 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 					}
 					if nodeVer == "not_installed" {
 						findings = append(findings, Finding{
-							RuleName: rule.ID,
-							Status:   "FAIL",
-							Message:  fmt.Sprintf("%s (Node.js is not installed)", rule.Description),
-							Severity: normalizeSeverity(rule.Severity),
+							RuleID:    rule.ID,
+							CheckName: rule.Check,
+							Status:    "FAIL",
+							Reason:    fmt.Sprintf("%s (Node.js is not installed)", rule.Description),
+							Severity:  normalizeSeverity(rule.Severity),
 						})
 						score -= getPenalty(rule.Severity)
 					} else if nodeVer != "error" && nodeVer != "unknown" {
 						if rule.Operator == "semver_gte" {
 							if isVersionLess(nodeVer, expectedStr) {
 								findings = append(findings, Finding{
-									RuleName: rule.ID,
-									Status:   "FAIL",
-									Message:  fmt.Sprintf("%s (Current version %s is below required %s)", rule.Description, nodeVer, expectedStr),
-									Severity: normalizeSeverity(rule.Severity),
+									RuleID:    rule.ID,
+									CheckName: rule.Check,
+									Status:    "FAIL",
+									Reason:    fmt.Sprintf("%s (Current version %s is below required %s)", rule.Description, nodeVer, expectedStr),
+									Severity:  normalizeSeverity(rule.Severity),
 								})
 								score -= getPenalty(rule.Severity)
 							}
@@ -229,20 +237,22 @@ func Evaluate(policyData []byte, checkResults map[string]checks.CheckResult, run
 					}
 					if dockerVer == "not_installed" {
 						findings = append(findings, Finding{
-							RuleName: rule.ID,
-							Status:   "FAIL",
-							Message:  fmt.Sprintf("%s (Docker is not installed)", rule.Description),
-							Severity: normalizeSeverity(rule.Severity),
+							RuleID:    rule.ID,
+							CheckName: rule.Check,
+							Status:    "FAIL",
+							Reason:    fmt.Sprintf("%s (Docker is not installed)", rule.Description),
+							Severity:  normalizeSeverity(rule.Severity),
 						})
 						score -= getPenalty(rule.Severity)
 					} else if dockerVer != "error" && dockerVer != "unknown" {
 						if rule.Operator == "semver_gte" {
 							if isVersionLess(dockerVer, expectedStr) {
 								findings = append(findings, Finding{
-									RuleName: rule.ID,
-									Status:   "FAIL",
-									Message:  fmt.Sprintf("%s (Current version %s is below required %s)", rule.Description, dockerVer, expectedStr),
-									Severity: normalizeSeverity(rule.Severity),
+									RuleID:    rule.ID,
+									CheckName: rule.Check,
+									Status:    "FAIL",
+									Reason:    fmt.Sprintf("%s (Current version %s is below required %s)", rule.Description, dockerVer, expectedStr),
+									Severity:  normalizeSeverity(rule.Severity),
 								})
 								score -= getPenalty(rule.Severity)
 							}
