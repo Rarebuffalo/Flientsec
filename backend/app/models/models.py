@@ -274,6 +274,7 @@ class CheckRun(Base):
         UUID(as_uuid=True), ForeignKey("policy_versions.id"), nullable=True
     )
     content_hash = Column(String, nullable=True)
+    provenance_status = Column(String, nullable=True)
 
     device = relationship("Device", back_populates="check_runs")
     policy_version = relationship("PolicyVersion")
