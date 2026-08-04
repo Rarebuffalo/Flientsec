@@ -347,6 +347,74 @@ def agent_checkin(
         f.check_name for f in device.findings if f.status == "Open"
     }
 
+    # Provenance Validation
+    prov_status = None
+    if (checkrun_in.policy_version_id is None or
+            checkrun_in.content_hash is None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing required policy version or content hash provenance"
+        )
+    else:
+        # Query PolicyVersion
+        version = (
+            db.query(models.PolicyVersion)
+            .filter(
+                models.PolicyVersion.id == checkrun_in.policy_version_id
+            )
+            .first()
+        )
+        if not version or version.status != "PUBLISHED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid policy version: not found or not published"
+            )
+
+        # Check tenant isolation
+        if (not version.policy or
+                version.policy.organization_id != device.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unauthorized policy version access: tenant mismatch"
+            )
+
+        # Hash integrity check
+        clean_submitted = checkrun_in.content_hash.replace("sha256:", "")
+        clean_stored = (version.content_hash or "").replace("sha256:", "")
+        if clean_submitted != clean_stored:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Integrity check failed: content hash mismatch"
+            )
+
+        # Determine currently desired effective policy version
+        assignment = (
+            db.query(models.PolicyAssignment)
+            .filter(models.PolicyAssignment.device_id == device.id)
+            .first()
+        )
+        if not assignment:
+            assignment = (
+                db.query(models.PolicyAssignment)
+                .filter(
+                    models.PolicyAssignment.organization_id == (
+                        device.organization_id
+                    ),
+                    models.PolicyAssignment.device_id.is_(None)
+                )
+                .first()
+            )
+
+        desired_ver_id = None
+        if assignment and assignment.policy:
+            desired_ver_id = assignment.policy.active_version_id
+
+        # Classify status
+        if desired_ver_id and version.id == desired_ver_id:
+            prov_status = "CURRENT"
+        else:
+            prov_status = "OUTDATED_POLICY"
+
     # Save CheckRun log
     check_run = models.CheckRun(
         id=checkrun_in.id,
@@ -354,6 +422,9 @@ def agent_checkin(
         timestamp=checkrun_in.timestamp,
         status=checkrun_in.status,
         score=checkrun_in.score,
+        policy_version_id=checkrun_in.policy_version_id,
+        content_hash=checkrun_in.content_hash,
+        provenance_status=prov_status,
     )
     db.add(check_run)
 
