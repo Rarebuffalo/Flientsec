@@ -157,3 +157,37 @@ func (c *Client) GetPolicy(deviceID string) ([]byte, error) {
 
 	return io.ReadAll(resp.Body)
 }
+
+
+func (c *Client) GetAgentPolicy(deviceID string) ([]byte, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/agent/policy", c.BaseURL)
+
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Device-Uuid", deviceID)
+	req.Header.Set("X-Device-Token", c.DeviceToken)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("auth_failed: status %d", resp.StatusCode)
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("policy_not_assigned: status %d", resp.StatusCode)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server_error: status %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
