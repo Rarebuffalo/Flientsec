@@ -296,6 +296,7 @@ class Finding(Base):
     status = Column(String, default="OPEN", nullable=False)  # OPEN, RESOLVED
     reason = Column(String, nullable=True)
     resolution_reason = Column(String, nullable=True)
+    drift_type = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     first_detected_at = Column(DateTime, default=datetime.utcnow)
     last_detected_at = Column(DateTime, default=datetime.utcnow)
@@ -329,5 +330,13 @@ class Event(Base):
     rule_name = Column(String, nullable=False)
     message = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    finding_id = Column(
+        UUID(as_uuid=True), ForeignKey("findings.id"), nullable=True
+    )
+    policy_version_id = Column(
+        UUID(as_uuid=True), ForeignKey("policy_versions.id"), nullable=True
+    )
 
     device = relationship("Device", back_populates="events")
+    finding = relationship("Finding")
+    policy_version = relationship("PolicyVersion")
