@@ -217,3 +217,17 @@ class PolicyAssignmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AgentPolicyResponse(BaseModel):
+    policy_id: UUID
+    policy_name: str
+    version_id: UUID
+    version_number: int
+    schema_version: int = 1
+    content: str
+    content_hash: str
+    issued_at: datetime
+
+    class Config:
+        from_attributes = True
