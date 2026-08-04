@@ -206,3 +206,14 @@ class EnrollmentTokenResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PolicyAssignmentResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    policy_id: UUID
+    device_id: Optional[UUID] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
