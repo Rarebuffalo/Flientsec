@@ -121,6 +121,8 @@ class CheckRunCreate(BaseModel):
     score: int
     timestamp: datetime
     findings: List[FindingCreate]
+    policy_version_id: Optional[UUID] = None
+    content_hash: Optional[str] = None
 
 
 class CheckRunResponse(BaseModel):
@@ -132,6 +134,7 @@ class CheckRunResponse(BaseModel):
     findings: List[DeviceFindingResponse] = []
     policy_version_id: Optional[UUID] = None
     content_hash: Optional[str] = None
+    provenance_status: Optional[str] = None
 
     class Config:
         from_attributes = True
