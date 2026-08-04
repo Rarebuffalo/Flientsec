@@ -1061,6 +1061,204 @@ def activate_policy_version(
     return policy
 
 
+@router.post(
+    "/policies/{policy_id}/assign-default",
+    response_model=schemas.PolicyAssignmentResponse,
+)
+def assign_default_policy(
+    policy_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = (
+        db.query(models.Policy)
+        .filter(
+            models.Policy.id == policy_id,
+            models.Policy.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not policy:
+        raise HTTPException(
+            status_code=404, detail="Policy not found"
+        )
+
+    # Check if a default assignment already exists
+    assignment = (
+        db.query(models.PolicyAssignment)
+        .filter(
+            models.PolicyAssignment.organization_id == (
+                policy.organization_id
+            ),
+            models.PolicyAssignment.device_id.is_(None)
+        )
+        .first()
+    )
+
+    if assignment:
+        assignment.policy_id = policy.id
+    else:
+        assignment = models.PolicyAssignment(
+            id=uuid.uuid4(),
+            organization_id=policy.organization_id,
+            policy_id=policy.id,
+            device_id=None
+        )
+        db.add(assignment)
+
+    db.commit()
+    db.refresh(assignment)
+    return assignment
+
+
+@router.post(
+    "/policies/{policy_id}/assign-device/{device_id}",
+    response_model=schemas.PolicyAssignmentResponse,
+)
+def assign_device_policy(
+    policy_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = (
+        db.query(models.Policy)
+        .filter(
+            models.Policy.id == policy_id,
+            models.Policy.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not policy:
+        raise HTTPException(
+            status_code=404, detail="Policy not found"
+        )
+
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == device_id,
+            models.Device.organization_id == policy.organization_id,
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(
+            status_code=404, detail="Device not found"
+        )
+
+    # Check if a device assignment already exists
+    assignment = (
+        db.query(models.PolicyAssignment)
+        .filter(
+            models.PolicyAssignment.device_id == device.id
+        )
+        .first()
+    )
+
+    if assignment:
+        assignment.policy_id = policy.id
+    else:
+        assignment = models.PolicyAssignment(
+            id=uuid.uuid4(),
+            organization_id=policy.organization_id,
+            policy_id=policy.id,
+            device_id=device.id
+        )
+        db.add(assignment)
+
+    db.commit()
+    db.refresh(assignment)
+    return assignment
+
+
+@router.get(
+    "/devices/{device_id}/effective-policy",
+    response_model=schemas.PolicyResponse,
+)
+def get_effective_policy(
+    device_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == device_id,
+            models.Device.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(
+            status_code=404, detail="Device not found"
+        )
+
+    # Resolve active policy:
+    # 1. Look for device override
+    assignment = (
+        db.query(models.PolicyAssignment)
+        .filter(
+            models.PolicyAssignment.device_id == device.id
+        )
+        .first()
+    )
+
+    # 2. Look for organization default
+    if not assignment:
+        assignment = (
+            db.query(models.PolicyAssignment)
+            .filter(
+                models.PolicyAssignment.organization_id == (
+                    device.organization_id
+                ),
+                models.PolicyAssignment.device_id.is_(None)
+            )
+            .first()
+        )
+
+    if not assignment:
+        raise HTTPException(
+            status_code=404,
+            detail="No policy assigned to this device or organization"
+        )
+
+    policy = (
+        db.query(models.Policy)
+        .filter(models.Policy.id == assignment.policy_id)
+        .first()
+    )
+    if not policy:
+        raise HTTPException(
+            status_code=404, detail="Assigned policy not found"
+        )
+
+    # Populate rules_yaml dynamically for backward compatibility
+    if policy.active_version_id:
+        version = (
+            db.query(models.PolicyVersion)
+            .filter(models.PolicyVersion.id == policy.active_version_id)
+            .first()
+        )
+        if version and version.definition_json:
+            try:
+                rules_dict = json.loads(version.definition_json)
+                policy.rules_yaml = yaml.dump(
+                    rules_dict, default_flow_style=False
+                )
+            except Exception:
+                policy.rules_yaml = ""
+        else:
+            policy.rules_yaml = ""
+    else:
+        policy.rules_yaml = ""
+
+    return policy
+
+
 @router.get("/reports/export")
 def export_csv_report(
     db: Session = Depends(get_db),
