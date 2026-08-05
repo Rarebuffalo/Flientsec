@@ -82,8 +82,13 @@ export default function Dashboard() {
   const warningCount = devices.filter((d) => d.compliance_status === "WARN").length
   const failedCount = devices.filter((d) => d.compliance_status === "FAIL").length
   
-  // Posture Percentage Score
-  const fleetPostureScore = totalCount > 0 ? Math.round((compliantCount / totalCount) * 100) : 100
+  // Posture Percentage Score (arithmetic average of device compliance scores)
+  const devicesWithScore = devices.filter(
+    (d) => d.compliance_score !== undefined && d.compliance_score !== null
+  )
+  const fleetPostureScore = devicesWithScore.length > 0 
+    ? Math.round(devicesWithScore.reduce((acc, d) => acc + d.compliance_score, 0) / devicesWithScore.length)
+    : 100
 
   // Devices requiring action
   const attentionDevices = devices.filter(
