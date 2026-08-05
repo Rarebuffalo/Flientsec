@@ -2701,3 +2701,270 @@ def test_concurrency_race_prevention(client, db):
         .first()
     )
     assert locked_device.id == device.id
+
+
+def test_checkrun_response_meta_information(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_meta",
+        status="ONLINE",
+        hostname="Laptop-Meta",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    policy = models.Policy(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        name="Meta Posture Policy"
+    )
+    db.add(policy)
+    db.commit()
+
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=12,
+        definition_json='{"checks": {}}',
+        content="rules",
+        content_hash="h123",
+        status="PUBLISHED",
+        created_by=user.id,
+    )
+    db.add(version)
+    db.commit()
+
+    policy.active_version_id = version.id
+    db.commit()
+
+    assignment = models.PolicyAssignment(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        policy_id=policy.id,
+        device_id=device.id,
+    )
+    db.add(assignment)
+    db.commit()
+
+    run = models.CheckRun(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        status="PASS",
+        score=100,
+        policy_version_id=version.id,
+        content_hash="h123",
+        provenance_status="CURRENT"
+    )
+    db.add(run)
+    db.commit()
+
+    resp = client.get(f"/api/v1/devices/{device.id}/latest-run", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["policy_name"] == "Meta Posture Policy"
+    assert data["version_number"] == 12
+    assert data["provenance_status"] == "CURRENT"
+
+    resp_p = client.get(f"/api/v1/devices/{device.id}/effective-policy", headers=headers)
+    assert resp_p.status_code == 200
+    data_p = resp_p.json()
+    assert data_p["active_version_number"] == 12
+
+
+def test_device_findings_status_filtering_and_pagination(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_findings_filt",
+        status="ONLINE",
+        hostname="Laptop-Findings",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    for i in range(3):
+        f = models.Finding(
+            id=uuid.uuid4(),
+            device_id=device.id,
+            rule_id=f"rule_{i}",
+            check_name=f"Check {i}",
+            status="OPEN"
+        )
+        db.add(f)
+    for i in range(2):
+        f = models.Finding(
+            id=uuid.uuid4(),
+            device_id=device.id,
+            rule_id=f"resolved_rule_{i}",
+            check_name=f"Check Resolved {i}",
+            status="RESOLVED"
+        )
+        db.add(f)
+    db.commit()
+
+    resp = client.get(f"/api/v1/devices/{device.id}/findings?limit=10", headers=headers)
+    assert resp.status_code == 200
+    assert len(resp.json()) == 5
+
+    resp = client.get(f"/api/v1/devices/{device.id}/findings?status=OPEN&limit=2", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert all(x["status"] == "OPEN" for x in data)
+
+    resp = client.get(f"/api/v1/devices/{device.id}/findings?status=RESOLVED", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert all(x["status"] == "RESOLVED" for x in data)
+
+
+def test_device_checkruns_paginated_endpoint(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_checkruns",
+        status="ONLINE",
+        hostname="Laptop-Runs",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    policy = models.Policy(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        name="Org baseline runs"
+    )
+    db.add(policy)
+    db.commit()
+
+    version = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy.id,
+        version_number=3,
+        definition_json='{}',
+        status="PUBLISHED",
+        created_by=user.id,
+    )
+    db.add(version)
+    db.commit()
+
+    for i in range(5):
+        run = models.CheckRun(
+            id=uuid.uuid4(),
+            device_id=device.id,
+            status="PASS",
+            score=100,
+            policy_version_id=version.id
+        )
+        db.add(run)
+    db.commit()
+
+    resp = client.get(f"/api/v1/devices/{device.id}/check-runs?limit=3", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 3
+    assert data[0]["policy_name"] == "Org baseline runs"
+    assert data[0]["version_number"] == 3
+
+    org2 = models.Organization(id=uuid.uuid4(), name="Test Org 2")
+    db.add(org2)
+    user2 = models.User(
+        id=uuid.uuid4(),
+        email="test2@flientsec.local",
+        hashed_password="pw"
+    )
+    db.add(user2)
+    db.commit()
+
+    member2 = models.Member(
+        id=uuid.uuid4(),
+        user_id=user2.id,
+        organization_id=org2.id,
+        role="owner"
+    )
+    db.add(member2)
+    db.commit()
+
+    token2 = security.create_access_token(subject=user2.email)
+    headers2 = {"Authorization": f"Bearer {token2}"}
+    resp2 = client.get(f"/api/v1/devices/{device.id}/check-runs", headers=headers2)
+    assert resp2.status_code == 404
+
+
+def test_casing_bug_resolved(client, db):
+    from app.core import security
+    org, user = create_org_and_user(db)
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_casing",
+        status="ONLINE",
+        hostname="Laptop-Casing",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    run = models.CheckRun(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        status="FAIL",
+        score=80,
+    )
+    db.add(run)
+
+    finding = models.Finding(
+        id=uuid.uuid4(),
+        device_id=device.id,
+        rule_id="r_casing",
+        check_name="Casing Check",
+        status="OPEN"
+    )
+    db.add(finding)
+    db.commit()
+
+    resp = client.get(f"/api/v1/devices/{device.id}/latest-run", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["findings"]) == 1
+    assert data["findings"][0]["rule_name"] == "Casing Check"
+

@@ -794,7 +794,8 @@ def get_device_latest_run(
     open_findings = (
         db.query(models.Finding)
         .filter(
-            models.Finding.device_id == id, models.Finding.status == "Open"
+            models.Finding.device_id == id,
+            models.Finding.status == "OPEN"
         )
         .all()
     )
@@ -807,9 +808,27 @@ def get_device_latest_run(
                 rule_name=f.check_name,
                 severity=f.severity,
                 status="FAIL" if f.severity == "HIGH" else "WARN",
-                message=f.reason,
+                message=f.reason or "",
             )
         )
+
+    policy_name = None
+    version_number = None
+    if run.policy_version_id:
+        version = (
+            db.query(models.PolicyVersion)
+            .filter(models.PolicyVersion.id == run.policy_version_id)
+            .first()
+        )
+        if version:
+            version_number = version.version_number
+            policy = (
+                db.query(models.Policy)
+                .filter(models.Policy.id == version.policy_id)
+                .first()
+            )
+            if policy:
+                policy_name = policy.name
 
     return schemas.CheckRunResponse(
         id=run.id,
@@ -818,6 +837,11 @@ def get_device_latest_run(
         status=run.status,
         score=run.score,
         findings=findings_list,
+        policy_version_id=run.policy_version_id,
+        content_hash=run.content_hash,
+        provenance_status=run.provenance_status,
+        policy_name=policy_name,
+        version_number=version_number,
     )
 
 
@@ -853,6 +877,9 @@ def get_device_history(
 )
 def get_device_findings(
     id: uuid.UUID,
+    status: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -867,12 +894,86 @@ def get_device_findings(
     )
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+
+    query = db.query(models.Finding).filter(models.Finding.device_id == id)
+    if status is not None:
+        query = query.filter(models.Finding.status == status)
+
     return (
-        db.query(models.Finding)
-        .filter(models.Finding.device_id == id)
-        .order_by(models.Finding.created_at.desc())
+        query.order_by(models.Finding.created_at.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
+
+
+@router.get(
+    "/devices/{id}/check-runs", response_model=List[schemas.CheckRunResponse]
+)
+def get_device_check_runs(
+    id: uuid.UUID,
+    limit: int = Query(20, ge=1),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == id,
+            models.Device.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    runs = (
+        db.query(models.CheckRun)
+        .filter(models.CheckRun.device_id == id)
+        .order_by(models.CheckRun.timestamp.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    response_runs = []
+    for r in runs:
+        policy_name = None
+        version_number = None
+        if r.policy_version_id:
+            version = (
+                db.query(models.PolicyVersion)
+                .filter(models.PolicyVersion.id == r.policy_version_id)
+                .first()
+            )
+            if version:
+                version_number = version.version_number
+                policy = (
+                    db.query(models.Policy)
+                    .filter(models.Policy.id == version.policy_id)
+                    .first()
+                )
+                if policy:
+                    policy_name = policy.name
+
+        response_runs.append(
+            schemas.CheckRunResponse(
+                id=r.id,
+                device_id=r.device_id,
+                timestamp=r.timestamp,
+                status=r.status,
+                score=r.score,
+                findings=[],
+                policy_version_id=r.policy_version_id,
+                content_hash=r.content_hash,
+                provenance_status=r.provenance_status,
+                policy_name=policy_name,
+                version_number=version_number,
+            )
+        )
+    return response_runs
 
 
 def seed_default_policy(db: Session, admin_user: models.User) -> models.Policy:
@@ -988,8 +1089,17 @@ def get_policies(
             policy.rules_yaml = yaml.dump(rules_dict, default_flow_style=False)
         except Exception:
             policy.rules_yaml = ""
-    else:
-        policy.rules_yaml = ""
+    # Resolve active version number
+    active_version_number = None
+    if policy.active_version_id:
+        active_ver = (
+            db.query(models.PolicyVersion)
+            .filter(models.PolicyVersion.id == policy.active_version_id)
+            .first()
+        )
+        if active_ver:
+            active_version_number = active_ver.version_number
+    policy.active_version_number = active_version_number
 
     return policy
 
@@ -1497,25 +1607,31 @@ def get_effective_policy(
         )
 
     # Populate rules_yaml dynamically for backward compatibility
+    active_version_number = None
     if policy.active_version_id:
         version = (
             db.query(models.PolicyVersion)
             .filter(models.PolicyVersion.id == policy.active_version_id)
             .first()
         )
-        if version and version.definition_json:
-            try:
-                rules_dict = json.loads(version.definition_json)
-                policy.rules_yaml = yaml.dump(
-                    rules_dict, default_flow_style=False
-                )
-            except Exception:
+        if version:
+            active_version_number = version.version_number
+            if version.definition_json:
+                try:
+                    rules_dict = json.loads(version.definition_json)
+                    policy.rules_yaml = yaml.dump(
+                        rules_dict, default_flow_style=False
+                    )
+                except Exception:
+                    policy.rules_yaml = ""
+            else:
                 policy.rules_yaml = ""
         else:
             policy.rules_yaml = ""
     else:
         policy.rules_yaml = ""
 
+    policy.active_version_number = active_version_number
     return policy
 
 

@@ -136,6 +136,8 @@ class CheckRunResponse(BaseModel):
     policy_version_id: Optional[UUID] = None
     content_hash: Optional[str] = None
     provenance_status: Optional[str] = None
+    policy_name: Optional[str] = None
+    version_number: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -149,6 +151,8 @@ class EventResponse(BaseModel):
     rule_name: str
     message: str
     timestamp: datetime
+    finding_id: Optional[UUID] = None
+    policy_version_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -172,6 +176,7 @@ class PolicyResponse(BaseModel):
     created_at: datetime
     rules_yaml: str
     active_version_id: Optional[UUID] = None
+    active_version_number: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -182,6 +187,7 @@ class PolicyVersionResponse(BaseModel):
     policy_id: UUID
     version_number: int
     definition_json: str
+    content: Optional[str] = None
     status: str
     content_hash: Optional[str] = None
     created_by: UUID
