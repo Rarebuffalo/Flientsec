@@ -2,7 +2,10 @@
 
 import React, { useEffect, useState } from "react"
 import Link from "next/link"
-import { Shield, ShieldAlert, ShieldCheck, Laptop, RefreshCw, Download } from "lucide-react"
+import { ShieldCheck, Laptop, RefreshCw, Download, AlertTriangle, ShieldAlert } from "lucide-react"
+import { 
+  PageHeader, StatCard, SectionHeader, LoadingState, EmptyState, Panel, StatusBadge 
+} from "../../../components/ui"
 
 interface Device {
   id: string
@@ -10,14 +13,15 @@ interface Device {
   os_name: string
   os_version: string
   os_arch: string
-  status: string // ONLINE / OFFLINE / UNKNOWN
-  compliance_status: string // PASS / FAIL / WARN
+  status: string
+  compliance_status: string
   compliance_score: number
   last_checkin: string | null
 }
 
 export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([])
+  const [policy, setPolicy] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -25,20 +29,18 @@ export default function Dashboard() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
   useEffect(() => {
-    setLoading(true)
     const loadData = async () => {
       try {
+        setLoading(true)
         const token = localStorage.getItem("flientsec_token")
         if (!token) {
           setError("No session active. Redirecting...")
           return
         }
+        const headers = { Authorization: `Bearer ${token}` }
 
-        const devicesRes = await fetch(`${apiUrl}/api/v1/devices`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        })
+        // Fetch Device registry
+        const devicesRes = await fetch(`${apiUrl}/api/v1/devices`, { headers })
         if (!devicesRes.ok) {
           if (devicesRes.status === 401) {
             localStorage.removeItem("flientsec_token")
@@ -49,6 +51,14 @@ export default function Dashboard() {
         }
         const devicesList = await devicesRes.json()
         setDevices(devicesList)
+
+        // Fetch primary Policy to get baseline/active version details
+        const policyRes = await fetch(`${apiUrl}/api/v1/policies`, { headers })
+        if (policyRes.ok) {
+          const policyData = await policyRes.json()
+          setPolicy(policyData)
+        }
+
         setError(null)
       } catch (err: any) {
         setError(err.message || "An error occurred while connecting to the backend.")
@@ -66,181 +76,242 @@ export default function Dashboard() {
     window.open(`${apiUrl}/api/v1/reports/export?token=${token}`, "_blank")
   }
 
-  // Aggregate stats
+  // 1. Authoritative Frontend Calculations
   const totalCount = devices.length
   const compliantCount = devices.filter((d) => d.compliance_status === "PASS").length
   const warningCount = devices.filter((d) => d.compliance_status === "WARN").length
   const failedCount = devices.filter((d) => d.compliance_status === "FAIL").length
+  
+  // Posture Percentage Score
+  const fleetPostureScore = totalCount > 0 ? Math.round((compliantCount / totalCount) * 100) : 100
+
+  // Devices requiring action
+  const attentionDevices = devices.filter(
+    (d) => d.compliance_status !== "PASS" || d.status !== "ONLINE"
+  )
+  const attentionCount = attentionDevices.length
+
+  // Policy references
+  const hasActivePolicy = policy && policy.active_version_id
+  const activePolicyName = policy ? policy.name : "None Assigned"
+  const activePolicyVer = hasActivePolicy ? `Active v${policy.active_version_number}` : "No active baseline"
+
+  if (loading) {
+    return <LoadingState message="Retrieving fleet security posture..." />
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6 font-sans">
+        <PageHeader 
+          title="Dashboard" 
+          subtitle="Continuous security posture across your engineering workstations." 
+        />
+        <div className="p-4 rounded-xl border border-red-200 bg-red-50/10 text-xs text-red-400 flex items-center space-x-2 font-mono">
+          <ShieldAlert className="h-4 w-4 flex-shrink-0 text-red-500" />
+          <span>{error} (Ensure backend service is accessible at {apiUrl})</span>
+        </div>
+        <button 
+          onClick={() => setRefreshKey((prev) => prev + 1)}
+          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface transition-colors"
+        >
+          <RefreshCw className="h-3 w-3" />
+          <span>Retry Connection</span>
+        </button>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-8 flex-1 flex flex-col">
-      {/* Upper header action bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Workstation Posture</h1>
-          <p className="text-sm text-slate-500 mt-1 font-medium">
-            Real-time compliance validation of engineering laptops in your fleet.
-          </p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setRefreshKey((prev) => prev + 1)}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 border border-slate-200 text-xs font-semibold rounded bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
-          </button>
-          <button
-            onClick={exportReport}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 border border-slate-200 text-xs font-semibold rounded bg-white hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>Export CSV</span>
-          </button>
-        </div>
-      </div>
+    <div className="space-y-8 flex-1 flex flex-col font-sans">
+      {/* Header action bar */}
+      <PageHeader 
+        title="Dashboard" 
+        subtitle="Continuous security posture across your engineering workstations." 
+        actions={
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={exportReport}
+              title="Export CSV Report"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface transition-colors"
+            >
+              <Download className="h-3.5 w-3.5 text-on-surface-variant" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              onClick={() => setRefreshKey((prev) => prev + 1)}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-on-surface-variant" />
+              <span>Refresh</span>
+            </button>
+          </div>
+        }
+      />
 
-      {error && (
-        <div className="p-4 rounded border border-danger/30 bg-danger/5 text-sm text-danger flex items-center space-x-2">
-          <ShieldAlert className="h-4 w-4 flex-shrink-0" />
-          <span>{error} (Ensure the backend service is running at {apiUrl})</span>
-        </div>
-      )}
-
-      {/* Analytics Cards */}
+      {/* SECTION 1 — FLEET SUMMARY STRIP */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-5 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-premium">
-          <div>
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Laptops</p>
-            <p className="text-3xl font-bold mt-2 text-slate-900">{loading ? "..." : totalCount}</p>
-          </div>
-          <Laptop className="h-8 w-8 text-slate-400" />
-        </div>
-        <div className="p-5 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-premium">
-          <div>
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Compliant</p>
-            <p className="text-3xl font-bold mt-2 text-success">{loading ? "..." : compliantCount}</p>
-          </div>
-          <ShieldCheck className="h-8 w-8 text-success" />
-        </div>
-        <div className="p-5 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-premium">
-          <div>
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Warnings</p>
-            <p className="text-3xl font-bold mt-2 text-warning">{loading ? "..." : warningCount}</p>
-          </div>
-          <Shield className="h-8 w-8 text-warning" />
-        </div>
-        <div className="p-5 bg-white border border-slate-200 rounded-lg flex items-center justify-between shadow-premium">
-          <div>
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Failed Policies</p>
-            <p className="text-3xl font-bold mt-2 text-danger">{loading ? "..." : failedCount}</p>
-          </div>
-          <ShieldAlert className="h-8 w-8 text-danger" />
-        </div>
+        <StatCard 
+          label="Fleet Posture" 
+          value={`${fleetPostureScore}%`} 
+          subtext={fleetPostureScore === 100 ? "Fully Compliant" : "Needs Attention"} 
+          status={fleetPostureScore === 100 ? "PASS" : "WARN"}
+        />
+        <StatCard 
+          label="Enrolled Workstations" 
+          value={totalCount} 
+          subtext={`${devices.filter((d) => d.status === "ONLINE").length} currently online`} 
+        />
+        <StatCard 
+          label="Attention Required" 
+          value={attentionCount} 
+          subtext={`${failedCount} failed · ${warningCount} warnings`} 
+          status={attentionCount > 0 ? "FAIL" : "PASS"}
+        />
+        <StatCard 
+          label="Policy Baseline" 
+          value={activePolicyVer} 
+          subtext={activePolicyName} 
+          status={hasActivePolicy ? "PASS" : "WARN"}
+        />
       </div>
 
-      {/* Fleet table */}
-      <div className="bg-white border border-slate-200 rounded-lg flex-1 flex flex-col overflow-hidden shadow-premium">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-          <h2 className="font-bold text-sm uppercase tracking-wider text-slate-700">Active Device Registers</h2>
-          <span className="text-xs text-slate-400">Total items: {devices.length}</span>
-        </div>
-
-        {loading ? (
-          <div className="p-12 text-center text-slate-400 flex-1 flex items-center justify-center space-x-2">
-            <RefreshCw className="h-4 w-4 animate-spin" />
-            <span>Retrieving fleet registers...</span>
-          </div>
-        ) : devices.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 flex-1 flex items-center justify-center">
-            No devices are currently connected. Run the client installer script on a developer workstation to check in.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/50 text-xs font-semibold text-slate-500">
-                  <th className="px-6 py-3">Hostname</th>
-                  <th className="px-6 py-3">Status</th>
-                  <th className="px-6 py-3">Compliance State</th>
-                  <th className="px-6 py-3 text-center">Score</th>
-                  <th className="px-6 py-3">OS</th>
-                  <th className="px-6 py-3">Architecture</th>
-                  <th className="px-6 py-3">Last Active</th>
-                  <th className="px-6 py-3 text-right"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm text-slate-600">
-                {devices.map((device) => {
-                  const checkinTime = device.last_checkin
-                    ? new Date(device.last_checkin).toLocaleTimeString()
+      {/* Main operational sections */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        
+        {/* SECTION 2 — ATTENTION REQUIRED (Left 2 columns on desktop) */}
+        <div className="lg:col-span-2 space-y-4">
+          <SectionHeader title="Attention Required" />
+          
+          {attentionCount === 0 ? (
+            <EmptyState 
+              title="No workstations require attention" 
+              description="All enrolled devices successfully comply with the current baseline security policy." 
+              icon={ShieldCheck} 
+            />
+          ) : (
+            <Panel>
+              <div className="divide-y divide-outline-variant/30">
+                {attentionDevices.map((device) => {
+                  const isStale = device.status !== "ONLINE"
+                  const lastActive = device.last_checkin 
+                    ? new Date(device.last_checkin).toLocaleString() 
                     : "never"
                   
                   return (
-                    <tr key={device.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 font-mono font-semibold text-slate-900">{device.hostname}</td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                            device.status === "ONLINE"
-                              ? "bg-success/10 text-success border border-success/20"
-                              : "bg-slate-100 text-slate-400 border border-slate-200"
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              device.status === "ONLINE" ? "bg-success" : "bg-slate-400"
-                            }`}
-                          ></span>
-                          <span>{device.status}</span>
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${
-                            device.compliance_status === "PASS"
-                              ? "bg-success/15 text-success border border-success/30"
-                              : device.compliance_status === "WARN"
-                              ? "bg-warning/15 text-warning border border-warning/30"
-                              : "bg-danger/15 text-danger border border-danger/30"
-                          }`}
-                        >
-                          {device.compliance_status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center font-bold font-mono">
-                        <span
-                          className={
-                            device.compliance_score >= 90
-                              ? "text-success"
-                              : device.compliance_score >= 70
-                              ? "text-warning"
-                              : "text-danger"
-                          }
-                        >
-                          {device.compliance_score}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-500">
-                        {device.os_name} {device.os_version}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-500 font-mono">{device.os_arch}</td>
-                      <td className="px-6 py-4 text-xs text-slate-500">{checkinTime}</td>
-                      <td className="px-6 py-4 text-right">
-                        <Link
+                    <div 
+                      key={device.id} 
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface-container-high/20 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <span className="font-mono font-bold text-sm text-on-surface">{device.hostname}</span>
+                          <StatusBadge status={device.compliance_status} />
+                          {isStale && (
+                            <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold border border-warning/20 bg-warning/10 text-warning font-mono">
+                              STALE/OFFLINE
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-on-surface-variant font-mono">
+                          ID: {device.id} · Check-in: {lastActive}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-4 self-end sm:self-auto">
+                        <div className="text-right">
+                          <p className="text-[9px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Score</p>
+                          <p className="text-sm font-bold font-mono text-on-surface">{device.compliance_score}/100</p>
+                        </div>
+                        <Link 
                           href={`/devices/${device.id}`}
-                          className="text-xs font-bold text-primary hover:text-emerald-800 hover:underline"
+                          className="px-3 py-1.5 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/60 rounded-lg text-xs font-bold text-on-surface transition-colors"
                         >
-                          View Details →
+                          View Device →
                         </Link>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   )
                 })}
-              </tbody>
-            </table>
+              </div>
+            </Panel>
+          )}
+        </div>
+
+        {/* SECTION 3 & 4 — FLEET STATE & POLICY ALIGNMENT (Right 1 column) */}
+        <div className="space-y-6">
+          {/* Posture Distribution */}
+          <div className="space-y-4">
+            <SectionHeader title="Posture Distribution" />
+            <Panel className="p-5 space-y-4">
+              {/* Simple distribution bar */}
+              {totalCount > 0 ? (
+                <div className="h-2 rounded-full overflow-hidden flex bg-surface-container-low border border-outline-variant/40">
+                  <div 
+                    style={{ width: `${(compliantCount / totalCount) * 100}%` }} 
+                    className="bg-status-success"
+                    title={`Compliant: ${compliantCount}`}
+                  />
+                  <div 
+                    style={{ width: `${(warningCount / totalCount) * 100}%` }} 
+                    className="bg-warning"
+                    title={`Warnings: ${warningCount}`}
+                  />
+                  <div 
+                    style={{ width: `${(failedCount / totalCount) * 100}%` }} 
+                    className="bg-error"
+                    title={`Failed: ${failedCount}`}
+                  />
+                </div>
+              ) : (
+                <div className="h-2 rounded-full bg-surface-container-low border border-outline-variant/40" />
+              )}
+
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="h-2 w-2 rounded-full bg-status-success" />
+                    <span className="text-on-surface-variant">Compliant devices</span>
+                  </div>
+                  <span className="font-mono font-bold text-on-surface">{compliantCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="h-2 w-2 rounded-full bg-warning" />
+                    <span className="text-on-surface-variant">Warning devices</span>
+                  </div>
+                  <span className="font-mono font-bold text-on-surface">{warningCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="h-2 w-2 rounded-full bg-error" />
+                    <span className="text-on-surface-variant">Failing devices</span>
+                  </div>
+                  <span className="font-mono font-bold text-on-surface">{failedCount}</span>
+                </div>
+              </div>
+            </Panel>
           </div>
-        )}
+
+          {/* Policy Baseline Info */}
+          <div className="space-y-4">
+            <SectionHeader title="Policy Baseline Coverage" />
+            <Panel className="p-5 space-y-3 text-xs">
+              <div>
+                <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Assigned Baseline</p>
+                <p className="font-bold text-on-surface mt-1">{activePolicyName}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Active Target Version</p>
+                <p className="font-mono font-bold text-tertiary mt-0.5">{activePolicyVer}</p>
+              </div>
+              <p className="text-[10px] text-on-surface-variant leading-relaxed pt-2 border-t border-outline-variant/40">
+                Workstations synchronize baselines locally. Evaluation provenance (such as <code>POLICY_UNAVAILABLE</code> or pending update states) are resolved on active agent handshake telemetry.
+              </p>
+            </Panel>
+          </div>
+        </div>
+
       </div>
     </div>
   )
