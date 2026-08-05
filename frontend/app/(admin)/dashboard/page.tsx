@@ -206,31 +206,35 @@ export default function Dashboard() {
                   return (
                     <div 
                       key={device.id} 
-                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface-container-high/20 transition-colors"
+                      className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface-container-high/20 transition-colors"
                     >
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                          <span className="font-mono font-bold text-sm text-on-surface">{device.hostname}</span>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
+                          <span className="font-bold text-base text-on-surface font-sans">{device.hostname}</span>
                           <StatusBadge status={device.compliance_status} />
                           {isStale && (
-                            <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold border border-warning/20 bg-warning/10 text-warning font-mono">
+                            <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border border-warning/20 bg-warning/10 text-warning font-sans">
                               STALE/OFFLINE
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-on-surface-variant font-mono">
-                          ID: {device.id} · Check-in: {lastActive}
-                        </p>
+                        <div className="text-xs text-on-surface-variant font-sans flex items-center space-x-2">
+                          <span className="font-mono text-[11px] bg-surface-container-high/40 px-1.5 py-0.5 rounded border border-outline-variant/40 select-all">
+                            {device.id}
+                          </span>
+                          <span>·</span>
+                          <span>Check-in: {lastActive}</span>
+                        </div>
                       </div>
 
                       <div className="flex items-center space-x-4 self-end sm:self-auto">
                         <div className="text-right">
-                          <p className="text-[9px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Score</p>
-                          <p className="text-sm font-bold font-mono text-on-surface">{device.compliance_score}/100</p>
+                          <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Score</p>
+                          <p className="text-base font-bold font-mono text-on-surface mt-0.5">{device.compliance_score}/100</p>
                         </div>
                         <Link 
                           href={`/devices/${device.id}`}
-                          className="px-3 py-1.5 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/60 rounded-lg text-xs font-bold text-on-surface transition-colors"
+                          className="px-3.5 py-2 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/60 rounded-lg text-sm font-semibold text-on-surface transition-colors"
                         >
                           View Device →
                         </Link>
