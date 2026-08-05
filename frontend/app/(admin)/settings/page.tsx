@@ -193,16 +193,16 @@ export default function SettingsPage() {
           <SectionHeader title="Enrollment Keys" />
           <Panel>
             <div className="px-5 py-3.5 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low/40">
-              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono flex items-center space-x-1.5">
-                <Key className="h-3.5 w-3.5 text-tertiary" />
+              <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-sans flex items-center space-x-2">
+                <Key className="h-4 w-4 text-tertiary" />
                 <span>Active Enrollment Keys</span>
               </span>
               <button
                 onClick={handleGenerate}
                 disabled={generating}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-tertiary hover:bg-white text-surface text-xs font-bold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-tertiary hover:bg-white text-surface text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-4 w-4" />
                 <span>{generating ? "Generating..." : "Generate Key"}</span>
               </button>
             </div>
@@ -216,48 +216,48 @@ export default function SettingsPage() {
                 />
               ) : (
                 <div className="overflow-x-auto border border-outline-variant/50 rounded-xl bg-surface-container-low">
-                  <table className="w-full text-left border-collapse text-xs">
+                  <table className="w-full text-left border-collapse text-[13px]">
                     <thead>
-                      <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant font-mono uppercase tracking-wider">
-                        <th className="py-3 px-4">Enrollment Key</th>
-                        <th className="py-3 px-4 font-mono">Created</th>
-                        <th className="py-3 px-4 font-mono">Expires</th>
-                        <th className="py-3 px-4 text-right">Action</th>
+                      <tr className="border-b border-outline-variant bg-surface-container-low/60 font-medium text-on-surface-variant uppercase tracking-wider text-xs font-sans">
+                        <th className="py-3.5 px-5">Enrollment Key</th>
+                        <th className="py-3.5 px-5 font-sans">Created</th>
+                        <th className="py-3.5 px-5 font-sans">Expires</th>
+                        <th className="py-3.5 px-5 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-outline-variant/30 text-on-surface font-sans">
                       {tokens.map((token) => (
                         <tr key={token.id} className="hover:bg-surface-container-high/10 transition-colors">
-                          <td className="py-3 px-4 font-mono text-[11px] text-on-surface">
+                          <td className="py-3.5 px-5 font-mono text-xs text-on-surface">
                             <div className="flex items-center space-x-2">
-                              <span className="truncate max-w-[160px] select-all">{token.token_hash}</span>
+                              <span className="truncate max-w-[180px] select-all">{token.token_hash}</span>
                               <button
                                 onClick={() => copyToClipboard(token.token_hash)}
                                 className="text-on-surface-variant hover:text-on-surface transition-colors"
                                 title="Copy Key"
                               >
                                 {copiedToken === token.token_hash ? (
-                                  <Check className="h-3.5 w-3.5 text-status-success" />
+                                  <Check className="h-4 w-4 text-status-success" />
                                 ) : (
-                                  <Copy className="h-3.5 w-3.5" />
+                                  <Copy className="h-4 w-4" />
                                 )}
                               </button>
                             </div>
                           </td>
-                          <td className="py-3 px-4 text-on-surface-variant font-mono text-[10px]">
+                          <td className="py-3.5 px-5 text-on-surface-variant font-mono text-xs">
                             {new Date(token.created_at).toLocaleDateString()}
                           </td>
-                          <td className="py-3 px-4 text-on-surface-variant font-mono text-[10px]">
+                          <td className="py-3.5 px-5 text-on-surface-variant font-mono text-xs">
                             {new Date(token.expires_at).toLocaleDateString()}
                           </td>
-                          <td className="py-3 px-4 text-right">
+                          <td className="py-3.5 px-5 text-right">
                             <button
                               onClick={() => handleRevoke(token.id)}
                               className="inline-flex items-center space-x-1 text-error hover:text-red-400 transition-colors"
                               title="Revoke Token"
                             >
-                              <Trash2 className="h-4 w-4" />
-                              <span className="text-xs font-bold font-sans">Revoke</span>
+                              <Trash2 className="h-4.5 w-4.5" />
+                              <span className="text-xs font-semibold font-sans">Revoke</span>
                             </button>
                           </td>
                         </tr>
