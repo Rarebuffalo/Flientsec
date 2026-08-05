@@ -2781,6 +2781,12 @@ def test_checkrun_response_meta_information(client, db):
     data_p = resp_p.json()
     assert data_p["active_version_number"] == 12
 
+    # Verify policies list endpoint
+    resp_pol = client.get("/api/v1/policies", headers=headers)
+    assert resp_pol.status_code == 200
+    data_pol = resp_pol.json()
+    assert data_pol["active_version_number"] == 12
+
 
 def test_device_findings_status_filtering_and_pagination(client, db):
     from app.core import security
