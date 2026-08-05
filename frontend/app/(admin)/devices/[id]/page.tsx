@@ -270,131 +270,131 @@ export default function DeviceDetails() {
   ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
   return (
-    <div className="space-y-8 flex-1 flex flex-col font-sans">
-      
-      {/* Page navigation & title header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-outline-variant/60">
-        <div className="space-y-2">
-          <Link href="/dashboard" className="inline-flex items-center space-x-1.5 text-xs text-on-surface-variant hover:text-on-surface transition-colors">
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Dashboard</span>
-          </Link>
-          <div className="flex items-center space-x-3 flex-wrap gap-y-2">
-            <h1 className="text-3xl font-extrabold tracking-tight text-on-surface">{device.hostname}</h1>
-            <span
-              className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                device.status === "ONLINE"
-                  ? "bg-status-success/10 text-status-success border-status-success/20"
-                  : "bg-surface-container-high text-on-surface-variant border-outline-variant"
-              }`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${device.status === "ONLINE" ? "bg-status-success" : "bg-on-surface-variant/40"}`}></span>
-              <span className="font-mono text-[10px] uppercase font-bold">{device.status === "ONLINE" ? "Online" : "Offline"}</span>
-            </span>
-            {device.status !== "DECOMMISSIONED" && (
-              <button
-                onClick={handleRevoke}
-                className="px-2.5 py-1 bg-error/10 hover:bg-error/20 text-error text-[10px] font-bold rounded-lg border border-error/20 transition-colors"
-              >
-                Revoke Device
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <div className="text-right">
-            <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Posture Score</p>
-            <p className="text-2xl font-bold font-mono tracking-tight mt-0.5 text-on-surface">
-              <span className={device.compliance_score >= 90 ? "text-status-success" : device.compliance_score >= 70 ? "text-warning" : "text-error"}>
-                {device.compliance_score}/100
-              </span>
-            </p>
-          </div>
-          <StatusBadge status={device.compliance_status} />
-        </div>
-      </div>
-
-      {/* Two Column Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+      <div className="space-y-8 flex-1 flex flex-col font-sans">
         
-        {/* LEFT COLUMN: Specifications & Policy Alignment */}
-        <div className="space-y-6 lg:col-span-1">
-          {/* Specifications Card */}
-          <div className="space-y-4">
-            <SectionHeader title="Specifications" icon={Laptop} />
-            <Panel className="p-5">
-              <div className="space-y-3.5 text-xs">
-                <div>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">UUID</p>
-                  <p className="font-mono text-on-surface mt-1 truncate select-all">{device.id}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Operating System</p>
-                  <p className="font-bold text-on-surface mt-1">{device.os_name} {device.os_version}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Architecture</p>
-                    <p className="font-bold text-on-surface mt-1">{device.os_arch}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Agent</p>
-                    <p className="font-mono font-bold text-on-surface mt-1">{device.agent_version}</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Kernel Version</p>
-                  <p className="font-mono text-on-surface mt-1 truncate">{device.kernel_version}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Last Active Handshake</p>
-                  <p className="font-semibold text-on-surface-variant mt-1">
-                    {device.last_checkin ? new Date(device.last_checkin).toLocaleString() : "never"}
-                  </p>
-                </div>
-              </div>
-            </Panel>
+        {/* Page navigation & title header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-outline-variant/60">
+          <div className="space-y-2">
+            <Link href="/dashboard" className="inline-flex items-center space-x-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Dashboard</span>
+            </Link>
+            <div className="flex items-center space-x-3.5 flex-wrap gap-y-2">
+              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-on-surface">{device.hostname}</h1>
+              <span
+                className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
+                  device.status === "ONLINE"
+                    ? "bg-status-success/10 text-status-success border-status-success/20"
+                    : "bg-surface-container-high text-on-surface-variant border-outline-variant"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${device.status === "ONLINE" ? "bg-status-success" : "bg-on-surface-variant/40"}`}></span>
+                <span className="text-[11px] uppercase tracking-wider font-semibold font-sans">{device.status === "ONLINE" ? "Online" : "Offline"}</span>
+              </span>
+              {device.status !== "DECOMMISSIONED" && (
+                <button
+                  onClick={handleRevoke}
+                  className="px-2.5 py-1 bg-error/10 hover:bg-error/20 text-error text-xs font-semibold rounded-lg border border-error/20 transition-colors"
+                >
+                  Revoke Device
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Policy Alignment Card */}
-          <div className="space-y-4">
-            <SectionHeader title="Policy Alignment" icon={ShieldCheck} />
-            <Panel className="p-5">
-              <div className="space-y-4 text-xs">
-                <div>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Desired Baseline</p>
-                  <p className="font-bold text-on-surface mt-1">
-                    {effectivePolicy ? `${effectivePolicy.name} (v${effectivePolicy.active_version_number || "Draft"})` : "None Assigned"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Last Evaluated Baseline</p>
-                  <p className="font-bold text-on-surface mt-1">
-                    {latestRun?.policy_name ? `${latestRun.policy_name} (v${latestRun.version_number || "?"})` : "None"}
-                  </p>
-                </div>
-                
-                <div className="pt-2 border-t border-outline-variant/40">
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono mb-2">Sync Status</p>
-                  <StatusBadge status={getAlignmentStatus(latestRun?.provenance_status || null)} />
-                  <p className="text-[9px] font-mono text-on-surface-variant/80 mt-1.5">
-                    Context: {latestRun?.provenance_status || "UNKNOWN"}
-                  </p>
-                </div>
+          <div className="flex items-center space-x-4">
+            <div className="text-right">
+              <p className="text-xs text-on-surface-variant/80 font-bold uppercase tracking-wider font-sans">Posture Score</p>
+              <p className="text-3xl font-bold font-mono tracking-tight mt-0.5 text-on-surface">
+                <span className={device.compliance_score >= 90 ? "text-status-success" : device.compliance_score >= 70 ? "text-warning" : "text-error"}>
+                  {device.compliance_score}/100
+                </span>
+              </p>
+            </div>
+            <StatusBadge status={device.compliance_status} />
+          </div>
+        </div>
 
-                {latestRun?.content_hash && (
+        {/* Two Column Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          
+          {/* LEFT COLUMN: Specifications & Policy Alignment */}
+          <div className="space-y-6 lg:col-span-1">
+            {/* Specifications Card */}
+            <div className="space-y-4">
+              <SectionHeader title="Specifications" icon={Laptop} />
+              <Panel className="p-6">
+                <div className="space-y-4 text-sm">
                   <div>
-                    <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Evaluated Hash</p>
-                    <p className="text-[9px] font-mono text-on-surface-variant mt-1.5 break-all bg-surface-container-low p-2 border border-outline-variant/40 rounded-lg">
-                      {latestRun.content_hash}
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">UUID</p>
+                    <p className="font-mono text-xs text-on-surface mt-1 truncate select-all">{device.id}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Operating System</p>
+                    <p className="font-semibold text-on-surface mt-1">{device.os_name} {device.os_version}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Architecture</p>
+                      <p className="font-semibold text-on-surface mt-1">{device.os_arch}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Agent</p>
+                      <p className="font-mono font-bold text-on-surface mt-1">{device.agent_version}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Kernel Version</p>
+                    <p className="font-mono text-xs text-on-surface mt-1 truncate">{device.kernel_version}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Last Active Handshake</p>
+                    <p className="font-medium text-on-surface mt-1">
+                      {device.last_checkin ? new Date(device.last_checkin).toLocaleString() : "never"}
                     </p>
                   </div>
-                )}
-              </div>
-            </Panel>
+                </div>
+              </Panel>
+            </div>
+
+            {/* Policy Alignment Card */}
+            <div className="space-y-4">
+              <SectionHeader title="Policy Alignment" icon={ShieldCheck} />
+              <Panel className="p-6">
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Desired Baseline</p>
+                    <p className="font-semibold text-on-surface mt-1">
+                      {effectivePolicy ? `${effectivePolicy.name} (v${effectivePolicy.active_version_number || "Draft"})` : "None Assigned"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Last Evaluated Baseline</p>
+                    <p className="font-semibold text-on-surface mt-1">
+                      {latestRun?.policy_name ? `${latestRun.policy_name} (v${latestRun.version_number || "?"})` : "None"}
+                    </p>
+                  </div>
+                  
+                  <div className="pt-3.5 border-t border-outline-variant/40">
+                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans mb-2">Sync Status</p>
+                    <StatusBadge status={getAlignmentStatus(latestRun?.provenance_status || null)} />
+                    <p className="text-xs font-mono text-on-surface-variant/80 mt-2">
+                      Context: {latestRun?.provenance_status || "UNKNOWN"}
+                    </p>
+                  </div>
+
+                  {latestRun?.content_hash && (
+                    <div>
+                      <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Evaluated Hash</p>
+                      <p className="text-xs font-mono text-on-surface-variant mt-2 break-all bg-surface-container-low p-2.5 border border-outline-variant/40 rounded-lg">
+                        {latestRun.content_hash}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </Panel>
+            </div>
           </div>
-        </div>
 
         {/* RIGHT COLUMN: Active Findings, Resolved Findings, Timeline */}
         <div className="lg:col-span-2 space-y-6">
@@ -414,20 +414,25 @@ export default function DeviceDetails() {
                   openFindings.map((finding) => (
                     <div key={finding.id} className="p-5 space-y-4">
                       <div className="flex items-start justify-between">
-                        <div className="space-y-1">
+                        <div className="space-y-1.5">
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                            <span className="font-bold text-sm text-on-surface">{finding.check_name}</span>
+                            <span className="font-semibold text-base text-on-surface font-sans">{finding.check_name}</span>
                             <SeverityBadge severity={finding.severity} />
-                            <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold border border-outline-variant/60 bg-surface-container-low text-on-surface-variant font-mono">
+                            <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-semibold border border-outline-variant/60 bg-surface-container-low text-on-surface-variant font-sans">
                               {getDriftLabel(finding.drift_type)}
                             </span>
                           </div>
-                          <p className="text-xs text-on-surface-variant">{finding.reason || "Violated baseline requirement rules."}</p>
-                          <p className="text-[9px] text-on-surface-variant/80 font-mono">
-                            Rule: {finding.rule_id} · Detected: {new Date(finding.first_detected_at).toLocaleString()}
-                          </p>
+                          <p className="text-sm text-on-surface-variant">{finding.reason || "Violated baseline requirement rules."}</p>
+                          <div className="text-xs text-on-surface-variant/80 font-sans flex items-center space-x-2">
+                            <span>Rule:</span>
+                            <span className="font-mono text-[11px] bg-surface-container-high/40 px-1.5 py-0.5 rounded border border-outline-variant/40 select-all">
+                              {finding.rule_id}
+                            </span>
+                            <span>·</span>
+                            <span>Detected: {new Date(finding.first_detected_at).toLocaleString()}</span>
+                          </div>
                         </div>
-                        <span className="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-error/15 text-error border border-error/30 font-mono">
+                        <span className="flex-shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-error/15 text-error border border-error/30 font-sans">
                           FAIL
                         </span>
                       </div>
@@ -449,14 +454,14 @@ export default function DeviceDetails() {
             <Panel>
               <button
                 onClick={() => setShowResolved(!showResolved)}
-                className="w-full px-5 py-4 flex items-center justify-between hover:bg-surface-container-high/20 transition-colors text-left"
+                className="w-full px-5 py-4.5 flex items-center justify-between hover:bg-surface-container-high/20 transition-colors text-left"
               >
-                <div className="flex items-center space-x-2">
-                  <ShieldCheck className="h-4 w-4 text-status-success" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-on-surface font-mono">Historical Resolved Findings</span>
+                <div className="flex items-center space-x-2.5">
+                  <ShieldCheck className="h-5 w-5 text-status-success" />
+                  <span className="text-sm font-semibold text-on-surface font-sans">Historical Resolved Findings</span>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <span className="text-[10px] text-on-surface-variant font-bold bg-surface-container-high px-2 py-0.5 rounded border border-outline-variant/40">
+                  <span className="text-xs text-on-surface-variant font-semibold bg-surface-container-high px-2.5 py-1 rounded-md border border-outline-variant/40 font-sans">
                     Archived: {resolvedFindings.length}
                   </span>
                   {showResolved ? <ChevronUp className="h-4 w-4 text-on-surface-variant" /> : <ChevronDown className="h-4 w-4 text-on-surface-variant" />}
@@ -464,29 +469,29 @@ export default function DeviceDetails() {
               </button>
 
               {showResolved && (
-                <div className="p-5 border-t border-outline-variant/35">
+                <div className="p-5 border-t border-outline-variant/35 bg-surface-container-lowest/20">
                   {resolvedFindings.length === 0 ? (
-                    <p className="text-[10px] text-on-surface-variant text-center py-4">No resolved checks recorded for this device.</p>
+                    <p className="text-xs text-on-surface-variant text-center py-4">No resolved checks recorded for this device.</p>
                   ) : (
                     <div className="overflow-x-auto border border-outline-variant/50 rounded-xl bg-surface-container-low">
-                      <table className="w-full text-left border-collapse text-xs">
+                      <table className="w-full text-left border-collapse text-sm">
                         <thead>
-                          <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant font-mono uppercase tracking-wider">
-                            <th className="px-4 py-2.5">Rule / Check</th>
-                            <th className="px-4 py-2.5">Drift Type</th>
-                            <th className="px-4 py-2.5">Resolution</th>
-                            <th className="px-4 py-2.5">Resolved Date</th>
+                          <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant uppercase tracking-wider text-xs font-sans">
+                            <th className="px-5 py-3">Rule / Check</th>
+                            <th className="px-5 py-3">Drift Type</th>
+                            <th className="px-5 py-3">Resolution</th>
+                            <th className="px-5 py-3">Resolved Date</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-outline-variant/30 text-on-surface font-sans">
                           {resolvedFindings.map((f) => (
                             <tr key={f.id} className="hover:bg-surface-container-high/10">
-                              <td className="px-4 py-3 font-semibold text-on-surface">{f.check_name}</td>
-                              <td className="px-4 py-3 text-on-surface-variant font-mono text-[10px]">
+                              <td className="px-5 py-3.5 font-semibold text-on-surface">{f.check_name}</td>
+                              <td className="px-5 py-3.5 text-on-surface-variant font-mono text-xs">
                                 {f.drift_type ? getDriftLabel(f.drift_type) : "Initial"}
                               </td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                              <td className="px-5 py-3.5">
+                                <span className={`inline-flex px-2.5 py-0.5 rounded-md text-xs font-medium border ${
                                   f.resolution_reason === "REMEDIATED" ? "bg-status-success/15 text-status-success border-status-success/30" :
                                   f.resolution_reason === "POLICY_RULE_REMOVED" ? "bg-surface-container-high text-on-surface-variant border-outline-variant" :
                                   "bg-tertiary/15 text-tertiary border-tertiary/30"
@@ -494,7 +499,7 @@ export default function DeviceDetails() {
                                   {getResolutionLabel(f.resolution_reason)}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-on-surface-variant font-mono text-[10px]">
+                              <td className="px-5 py-3.5 text-on-surface-variant font-mono text-xs">
                                 {f.resolved_at ? new Date(f.resolved_at).toLocaleString() : ""}
                               </td>
                             </tr>
@@ -511,9 +516,9 @@ export default function DeviceDetails() {
           {/* Unified Timeline */}
           <div className="space-y-4">
             <SectionHeader title="Unified Posture & Compliance Timeline" icon={Calendar} />
-            <Panel className="p-6">
+            <Panel className="p-6 bg-surface-container">
               {timelineItems.length === 0 ? (
-                <p className="text-xs text-on-surface-variant text-center py-4">No events recorded for this device.</p>
+                <p className="text-sm text-on-surface-variant text-center py-4">No events recorded for this device.</p>
               ) : (
                 <div className="relative border-l border-outline-variant/60 ml-2 pl-6 space-y-6">
                   {timelineItems.map((item) => {
@@ -523,19 +528,19 @@ export default function DeviceDetails() {
                       const isTrigger = (item as any).eventType === "VIOLATION_TRIGGERED"
                       return (
                         <div key={item.id} className="relative">
-                          <span className="absolute -left-[30px] top-0 bg-surface rounded-full p-0.5 border border-outline-variant/60">
+                          <span className="absolute -left-[30px] top-0.5 bg-surface rounded-full p-0.5 border border-outline-variant/60">
                             {isTrigger ? (
-                              <XCircle className="h-3.5 w-3.5 text-error flex-shrink-0" />
+                              <XCircle className="h-4 w-4 text-error flex-shrink-0" />
                             ) : (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-status-success flex-shrink-0" />
+                              <CheckCircle2 className="h-4 w-4 text-status-success flex-shrink-0" />
                             )}
                           </span>
                           <div className="space-y-1">
-                            <p className="text-xs font-bold text-on-surface leading-none">
+                            <p className="text-sm font-semibold text-on-surface leading-none">
                               {isTrigger ? "Violation Triggered" : "Violation Resolved"}
                             </p>
-                            <p className="text-[11px] text-on-surface-variant mt-1">{item.message}</p>
-                            <p className="text-[9px] text-on-surface-variant/70 font-mono mt-1 leading-none">{dateStr}</p>
+                            <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed">{item.message}</p>
+                            <p className="text-xs text-on-surface-variant/70 font-sans mt-1 leading-none">{dateStr}</p>
                           </div>
                         </div>
                       )
@@ -548,17 +553,17 @@ export default function DeviceDetails() {
 
                       return (
                         <div key={item.id} className="relative">
-                          <span className="absolute -left-[30px] top-0 bg-surface rounded-full p-0.5 border border-outline-variant/60">
-                            <Activity className="h-3.5 w-3.5 text-on-surface-variant/60 flex-shrink-0" />
+                          <span className="absolute -left-[30px] top-0.5 bg-surface rounded-full p-0.5 border border-outline-variant/60">
+                            <Activity className="h-4 w-4 text-on-surface-variant/60 flex-shrink-0" />
                           </span>
                           <div className="space-y-1">
-                            <p className="text-xs font-bold text-on-surface leading-none">
+                            <p className="text-sm font-semibold text-on-surface leading-none">
                               Posture Evaluated · Score <span className={`font-mono font-bold ${scoreColor}`}>{score}/100</span>
                             </p>
-                            <p className="text-[11px] text-on-surface-variant mt-1">
+                            <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
                               Evaluated policy {pName ? `"${pName}" (v${vNum || "?"})` : "definition"}
                             </p>
-                            <p className="text-[9px] text-on-surface-variant/70 font-mono mt-1 leading-none">{dateStr}</p>
+                            <p className="text-xs text-on-surface-variant/70 font-sans mt-1 leading-none">{dateStr}</p>
                           </div>
                         </div>
                       )
