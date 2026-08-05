@@ -221,9 +221,9 @@ export default function PolicyManager() {
         {/* Editor Area (Left 2 columns) */}
         <div className="lg:col-span-2 space-y-6">
           <Panel>
-            <div className="px-5 py-3 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low/40">
-              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono flex items-center space-x-1.5">
-                <FileCode className="h-3.5 w-3.5 text-tertiary" />
+            <div className="px-5 py-4 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low/40">
+              <span className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider font-sans flex items-center space-x-2">
+                <FileCode className="h-4 w-4 text-tertiary" />
                 <span>policy.yaml (Draft configuration)</span>
               </span>
               <div className="flex items-center space-x-2">
@@ -231,26 +231,26 @@ export default function PolicyManager() {
                   onClick={fetchPolicy}
                   disabled={loading}
                   title="Reload baseline from database"
-                  className="p-1.5 border border-outline-variant/60 text-on-surface-variant hover:text-on-surface rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors"
+                  className="p-2 border border-outline-variant/60 text-on-surface-variant hover:text-on-surface rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors"
                 >
-                  <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                  <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                 </button>
                 <button
                   onClick={savePolicy}
                   disabled={saving || loading}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-tertiary hover:bg-white text-surface text-xs font-bold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+                  className="inline-flex items-center space-x-2 px-4 py-2 bg-tertiary hover:bg-white text-surface text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
                 >
-                  <Save className="h-3.5 w-3.5" />
+                  <Save className="h-4 w-4" />
                   <span>{saving ? "Saving..." : "Save Draft"}</span>
                 </button>
               </div>
             </div>
             
-            <div className="p-4 bg-terminal-black">
+            <div className="p-5 bg-terminal-black">
               <textarea
                 value={yamlContent}
                 onChange={(e) => setYamlContent(e.target.value)}
-                className="w-full h-[360px] bg-terminal-black text-on-surface font-mono text-xs p-4 focus:outline-none focus:ring-1 focus:ring-tertiary border border-outline-variant/40 rounded-lg resize-none leading-relaxed"
+                className="w-full h-[380px] bg-terminal-black text-on-surface font-mono text-[13px] md:text-[14px] p-5 focus:outline-none focus:ring-1 focus:ring-tertiary border border-outline-variant/40 rounded-lg resize-none leading-relaxed"
                 style={{ tabSize: 2 }}
                 placeholder="# Define security posture configuration rules here"
               />
@@ -262,14 +262,14 @@ export default function PolicyManager() {
             <SectionHeader title="Policy Version History" />
             <Panel className="p-5">
               <div className="overflow-x-auto border border-outline-variant/50 rounded-lg bg-surface-container-low">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-[13px]">
                   <thead>
-                    <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant font-mono uppercase tracking-wider">
-                      <th className="px-4 py-2.5">Version</th>
-                      <th className="px-4 py-2.5">Status</th>
-                      <th className="px-4 py-2.5">Content Hash</th>
-                      <th className="px-4 py-2.5">Created At</th>
-                      <th className="px-4 py-2.5 text-right">Actions</th>
+                    <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant uppercase tracking-wider text-xs font-sans">
+                      <th className="px-5 py-3.5">Version</th>
+                      <th className="px-5 py-3.5">Status</th>
+                      <th className="px-5 py-3.5">Content Hash</th>
+                      <th className="px-5 py-3.5">Created At</th>
+                      <th className="px-5 py-3.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-outline-variant/30 text-on-surface font-sans">
@@ -284,12 +284,12 @@ export default function PolicyManager() {
 
                       return (
                         <tr key={ver.id} className="hover:bg-surface-container-high/10 transition-colors">
-                          <td className="px-4 py-3 font-mono font-bold text-on-surface">
+                          <td className="px-5 py-3.5 font-mono font-bold text-on-surface">
                             v{ver.version_number}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-5 py-3.5">
                             <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold border ${
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-semibold border ${
                                 isActive
                                   ? "bg-status-success/15 text-status-success border-status-success/30"
                                   : ver.status === "PUBLISHED"
@@ -300,17 +300,17 @@ export default function PolicyManager() {
                               {isActive ? "ACTIVE" : ver.status}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-mono text-[10px] text-on-surface-variant">
+                          <td className="px-5 py-3.5 font-mono text-xs text-on-surface-variant">
                             {shortHash}
                           </td>
-                          <td className="px-4 py-3 text-on-surface-variant/80 font-mono">
+                          <td className="px-5 py-3.5 text-on-surface-variant/80 font-mono text-xs">
                             {formattedDate}
                           </td>
-                          <td className="px-4 py-3 text-right space-x-1">
+                          <td className="px-5 py-3.5 text-right space-x-1.5">
                             {ver.content && (
                               <button
                                 onClick={() => setYamlContent(ver.content)}
-                                className="px-2 py-1 text-[10px] font-bold border border-outline-variant/60 rounded bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors"
+                                className="px-3 py-1.5 text-xs font-semibold border border-outline-variant/60 rounded bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors"
                               >
                                 Inspect
                               </button>
@@ -319,7 +319,7 @@ export default function PolicyManager() {
                               <button
                                 onClick={() => publishVersion(ver.id)}
                                 disabled={publishing !== null}
-                                className="px-2 py-1 text-[10px] font-bold bg-tertiary hover:bg-white text-surface rounded transition-colors disabled:opacity-50"
+                                className="px-3 py-1.5 text-xs font-semibold bg-tertiary hover:bg-white text-surface rounded transition-colors disabled:opacity-50"
                               >
                                 {publishing === ver.id ? "Publishing..." : "Publish"}
                               </button>
@@ -328,7 +328,7 @@ export default function PolicyManager() {
                               <button
                                 onClick={() => activateVersion(ver.id)}
                                 disabled={activating !== null}
-                                className="px-2 py-1 text-[10px] font-bold bg-status-success hover:bg-emerald-500 text-surface rounded transition-colors disabled:opacity-50"
+                                className="px-3 py-1.5 text-xs font-semibold bg-status-success hover:bg-emerald-500 text-surface rounded transition-colors disabled:opacity-50"
                               >
                                 {activating === ver.id ? "Activating..." : "Activate"}
                               </button>
