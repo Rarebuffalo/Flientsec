@@ -1,7 +1,10 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
-import { Key, Plus, Trash2, ShieldCheck, HelpCircle, Copy, Check } from "lucide-react"
+import { Key, Plus, Trash2, ShieldCheck, HelpCircle, Copy, Check, ShieldAlert } from "lucide-react"
+import { 
+  PageHeader, Panel, SectionHeader, LoadingState, EmptyState 
+} from "../../../components/ui"
 
 interface EnrollmentToken {
   id: string
@@ -132,135 +135,141 @@ export default function SettingsPage() {
     setTimeout(() => setCopiedToken(null), 2000)
   }
 
+  if (loading) {
+    return <LoadingState message="Retrieving configuration parameter settings..." />
+  }
+
   return (
-    <div className="space-y-8 flex-1 flex flex-col">
-      {/* Header bar */}
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1 font-medium">
-          Manage workstation onboarding keys, setup configurations, and organizational parameters.
-        </p>
-      </div>
+    <div className="space-y-8 flex-1 flex flex-col font-sans max-w-5xl w-full mx-auto">
+      
+      {/* Page Header */}
+      <PageHeader 
+        title="Settings" 
+        subtitle="Manage workstation enrollment keys, setup guides, and organization configuration." 
+      />
 
       {success && (
-        <div className="p-4 rounded-lg border border-success/30 bg-success/5 text-success text-sm flex items-center space-x-2">
+        <div className="p-4 rounded-xl border border-status-success/30 bg-status-success/5 text-status-success text-xs flex items-center space-x-2 shadow-sm font-medium">
           <ShieldCheck className="h-4 w-4 flex-shrink-0" />
           <span>{success}</span>
         </div>
       )}
 
       {error && (
-        <div className="p-4 rounded-lg border border-danger/30 bg-danger/5 text-danger text-sm flex items-center space-x-2">
-          <span className="font-semibold">Error:</span>
+        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error text-xs flex items-center space-x-2 shadow-sm font-mono">
+          <ShieldAlert className="h-4 w-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        
         {/* Onboarding Guide Card */}
-        <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-6 shadow-premium">
-          <h2 className="text-sm font-bold uppercase tracking-wider border-b border-slate-200 pb-3 flex items-center space-x-2 text-slate-700">
-            <HelpCircle className="h-4 w-4" />
-            <span>Onboarding Guide</span>
-          </h2>
-          <div className="space-y-4 text-xs font-mono text-slate-600">
-            <p className="leading-relaxed">
-              To enroll developer workstations, follow these steps:
+        <div className="space-y-4 lg:col-span-1">
+          <SectionHeader title="Onboarding Guide" icon={HelpCircle} />
+          <Panel className="p-5 space-y-4 text-xs text-on-surface-variant font-medium leading-relaxed">
+            <p>
+              To enroll new developer workstations into the organizational posture inventory, follow this sequence:
             </p>
-            <ol className="list-decimal list-inside space-y-3 font-sans text-sm">
+            <ol className="list-decimal list-inside space-y-3 font-sans text-xs">
               <li>
-                <span className="font-semibold text-slate-900">Generate a token</span> using the panel on the right.
+                <span className="font-bold text-on-surface">Generate a token</span> using the keys panel.
               </li>
               <li>
-                <span className="font-semibold text-slate-900">Share the token</span> with developers (valid for 7 days).
+                <span className="font-bold text-on-surface">Share the token</span> with developers (valid for 7 days).
               </li>
               <li>
-                <span className="font-semibold text-slate-900">Run registration</span> inside the workstation daemon:
-                <pre className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 whitespace-pre-wrap leading-tight">
+                <span className="font-bold text-on-surface">Run the installation script</span> on the workstation:
+                <pre className="mt-2.5 p-3 bg-terminal-black border border-outline-variant/40 rounded-lg text-[10px] font-mono text-on-surface whitespace-pre-wrap leading-relaxed select-all">
                   {`curl -fsSL http://localhost:8000/install.sh | env ENROLLMENT_TOKEN="<token>" bash`}
                 </pre>
               </li>
             </ol>
-          </div>
+          </Panel>
         </div>
 
         {/* Enrollment Tokens Card */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-lg shadow-premium">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-            <h2 className="text-sm font-bold uppercase tracking-wider flex items-center space-x-2 text-slate-700">
-              <Key className="h-4 w-4" />
-              <span>Enrollment Keys</span>
-            </h2>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#12372A] hover:bg-emerald-950 text-white text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>{generating ? "Generating..." : "Generate Key"}</span>
-            </button>
-          </div>
+        <div className="lg:col-span-2 space-y-4">
+          <SectionHeader title="Enrollment Keys" />
+          <Panel>
+            <div className="px-5 py-3.5 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low/40">
+              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono flex items-center space-x-1.5">
+                <Key className="h-3.5 w-3.5 text-tertiary" />
+                <span>Active Enrollment Keys</span>
+              </span>
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-tertiary hover:bg-white text-surface text-xs font-bold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>{generating ? "Generating..." : "Generate Key"}</span>
+              </button>
+            </div>
 
-          <div className="p-6">
-            {loading ? (
-              <p className="text-slate-400 text-center text-sm py-4 animate-pulse">Loading active tokens...</p>
-            ) : tokens.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">
-                <p className="font-semibold text-slate-800">No active enrollment keys</p>
-                <p className="text-xs mt-1">Generate a key above to start onboarding workstations.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm text-left font-sans">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-400">
-                      <th className="py-3 px-4">Enrollment Key</th>
-                      <th className="py-3 px-4">Created At</th>
-                      <th className="py-3 px-4">Expires At</th>
-                      <th className="py-3 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tokens.map((token) => (
-                      <tr key={token.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="py-4 px-4 font-mono text-slate-900 flex items-center space-x-2">
-                          <span className="truncate max-w-[180px]">{token.token_hash}</span>
-                          <button
-                            onClick={() => copyToClipboard(token.token_hash)}
-                            className="text-slate-400 hover:text-slate-900 transition-colors"
-                            title="Copy Key"
-                          >
-                            {copiedToken === token.token_hash ? (
-                              <Check className="h-3.5 w-3.5 text-success" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </td>
-                        <td className="py-4 px-4 text-slate-500">
-                          {new Date(token.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="py-4 px-4 text-slate-500">
-                          {new Date(token.expires_at).toLocaleDateString()}
-                        </td>
-                        <td className="py-4 px-4 text-right">
-                          <button
-                            onClick={() => handleRevoke(token.id)}
-                            className="inline-flex items-center space-x-1 text-danger hover:text-red-800 transition-colors"
-                            title="Revoke Token"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            <span className="text-xs font-bold">Revoke</span>
-                          </button>
-                        </td>
+            <div className="p-5">
+              {tokens.length === 0 ? (
+                <EmptyState 
+                  title="No active enrollment keys" 
+                  description="Generate a key above to start onboarding workstations." 
+                  icon={Key}
+                />
+              ) : (
+                <div className="overflow-x-auto border border-outline-variant/50 rounded-xl bg-surface-container-low">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant font-mono uppercase tracking-wider">
+                        <th className="py-3 px-4">Enrollment Key</th>
+                        <th className="py-3 px-4 font-mono">Created</th>
+                        <th className="py-3 px-4 font-mono">Expires</th>
+                        <th className="py-3 px-4 text-right">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30 text-on-surface font-sans">
+                      {tokens.map((token) => (
+                        <tr key={token.id} className="hover:bg-surface-container-high/10 transition-colors">
+                          <td className="py-3 px-4 font-mono text-[11px] text-on-surface">
+                            <div className="flex items-center space-x-2">
+                              <span className="truncate max-w-[160px] select-all">{token.token_hash}</span>
+                              <button
+                                onClick={() => copyToClipboard(token.token_hash)}
+                                className="text-on-surface-variant hover:text-on-surface transition-colors"
+                                title="Copy Key"
+                              >
+                                {copiedToken === token.token_hash ? (
+                                  <Check className="h-3.5 w-3.5 text-status-success" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-on-surface-variant font-mono text-[10px]">
+                            {new Date(token.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 px-4 text-on-surface-variant font-mono text-[10px]">
+                            {new Date(token.expires_at).toLocaleDateString()}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => handleRevoke(token.id)}
+                              className="inline-flex items-center space-x-1 text-error hover:text-red-400 transition-colors"
+                              title="Revoke Token"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span className="text-xs font-bold font-sans">Revoke</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </Panel>
         </div>
+
       </div>
     </div>
   )
