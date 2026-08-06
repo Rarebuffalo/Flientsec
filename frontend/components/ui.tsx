@@ -347,7 +347,7 @@ export function AppShell({
 
           <SidebarSection title="Posture">
             <SidebarLink href="/devices" label="Devices" icon={Laptop} />
-            <SidebarLink href="/findings" label="Findings" icon={ShieldCheck} disabled badge="Soon" />
+            <SidebarLink href="/findings" label="Findings" icon={ShieldCheck} />
             <SidebarLink href="/activity" label="Activity" icon={Calendar} disabled badge="Soon" />
           </SidebarSection>
 
