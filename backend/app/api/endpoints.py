@@ -1816,3 +1816,197 @@ def export_csv_report(
         "attachment; filename=flientsec_compliance_report.csv"
     )
     return response
+
+
+# =====================================================================
+# Fleet Findings & Fleet Events Read APIs (Phase 4A)
+# =====================================================================
+
+@router.get("/findings", response_model=schemas.FleetFindingListResponse)
+def get_fleet_findings(
+    status: Optional[schemas.FindingStatusEnum] = Query(None),
+    severity: Optional[schemas.FindingSeverityEnum] = Query(None),
+    drift_type: Optional[schemas.FindingDriftTypeEnum] = Query(None),
+    device_id: Optional[uuid.UUID] = Query(None),
+    policy_id: Optional[uuid.UUID] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Tenant-scoped, fleet-wide query endpoint for Findings.
+    Provides paginated results to hydrate the console findings view.
+    """
+    from sqlalchemy import case
+    memberships = [m.organization_id for m in current_user.memberships]
+
+    # Model Invariant: Device is the authoritative tenant boundary (Device.organization_id).
+    # Findings and Events are child resources of Device, meaning their tenant-scoping is
+    # transitively governed by the Device they belong to. When joining Policy or PolicyVersion
+    # for display purposes, we outerjoin on standard FK relationships. Since the outer query
+    # strictly filters by models.Device.organization_id.in_(memberships), it is impossible
+    # for findings/events of other organizations to be queried, thus preventing any cross-organization
+    # policy leak.
+    query = (
+        db.query(models.Finding, models.Device.hostname, models.Policy.name)
+        .join(models.Device, models.Finding.device_id == models.Device.id)
+        .outerjoin(models.Policy, models.Finding.policy_id == models.Policy.id)
+        .filter(models.Device.organization_id.in_(memberships))
+    )
+
+    # Apply filters using AND logic (intersection)
+    if device_id is not None:
+        query = query.filter(models.Finding.device_id == device_id)
+    if policy_id is not None:
+        query = query.filter(models.Finding.policy_id == policy_id)
+    if status is not None:
+        query = query.filter(models.Finding.status == status.value)
+    if severity is not None:
+        from sqlalchemy import func
+        # Perform case-insensitive comparison to handle legacy seed and mixed-case entries robustly
+        query = query.filter(func.lower(models.Finding.severity) == severity.value.lower())
+    if drift_type is not None:
+        query = query.filter(models.Finding.drift_type == drift_type.value)
+
+    # Fetch total matching record count
+    total = query.count()
+
+    # Custom Operational Sorting:
+    # 1. OPEN before RESOLVED
+    # 2. HIGH before MEDIUM before LOW (DB strings compared case-insensitively, order weight reflects database values)
+    # 3. last_detected_at DESC (Observe most recently detected violations first)
+    # 4. id ASC (Deterministic pagination tie-breaker)
+    status_order = case(
+        (models.Finding.status == "OPEN", 0),
+        else_=1
+    )
+    from sqlalchemy import func
+    severity_order = case(
+        (func.lower(models.Finding.severity) == "high", 0),
+        (func.lower(models.Finding.severity) == "medium", 1),
+        (func.lower(models.Finding.severity) == "low", 2),
+        else_=3
+    )
+
+
+    query = query.order_by(
+        status_order.asc(),
+        severity_order.asc(),
+        models.Finding.last_detected_at.desc(),
+        models.Finding.id.asc()
+    )
+
+    # Paginate and execute SELECT
+    query_results = query.offset(offset).limit(limit).all()
+
+    items = []
+    for finding, hostname, policy_name in query_results:
+        items.append(
+            schemas.FleetFindingResponse(
+                id=finding.id,
+                device_id=finding.device_id,
+                device_hostname=hostname,
+                policy_id=finding.policy_id,
+                policy_name=policy_name,
+                rule_id=finding.rule_id,
+                check_name=finding.check_name,
+                severity=schemas.FindingSeverityEnum(finding.severity.upper()),
+                status=schemas.FindingStatusEnum(finding.status),
+                reason=finding.reason,
+                drift_type=schemas.FindingDriftTypeEnum(finding.drift_type) if finding.drift_type else None,
+                resolution_reason=finding.resolution_reason,
+                first_detected_at=finding.first_detected_at,
+                last_detected_at=finding.last_detected_at,
+                resolved_at=finding.resolved_at
+            )
+        )
+
+    return schemas.FleetFindingListResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset
+    )
+
+
+@router.get("/events", response_model=schemas.FleetEventListResponse)
+def get_fleet_events(
+    type: Optional[schemas.EventTypeEnum] = Query(None),
+    device_id: Optional[uuid.UUID] = Query(None),
+    finding_id: Optional[uuid.UUID] = Query(None),
+    policy_version_id: Optional[uuid.UUID] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Tenant-scoped, fleet-wide query endpoint for Events.
+    Exposes paginated activity feed list containing unified posture changes.
+    """
+    memberships = [m.organization_id for m in current_user.memberships]
+
+    # Model Invariant: Device is the authoritative tenant boundary (Device.organization_id).
+    # Joined metadata (Policy, PolicyVersion) is resolved strictly relative to events
+    # which are matched to Devices inside the tenant's organization list.
+    query = (
+        db.query(
+            models.Event, 
+            models.Device.hostname,
+            models.Policy.name,
+            models.PolicyVersion.version_number
+        )
+        .join(models.Device, models.Event.device_id == models.Device.id)
+        .outerjoin(models.PolicyVersion, models.Event.policy_version_id == models.PolicyVersion.id)
+        .outerjoin(models.Policy, models.PolicyVersion.policy_id == models.Policy.id)
+        .filter(models.Device.organization_id.in_(memberships))
+    )
+
+    # Apply filters using AND logic (intersection)
+    if type is not None:
+        query = query.filter(models.Event.type == type.value)
+    if device_id is not None:
+        query = query.filter(models.Event.device_id == device_id)
+    if finding_id is not None:
+        query = query.filter(models.Event.finding_id == finding_id)
+    if policy_version_id is not None:
+        query = query.filter(models.Event.policy_version_id == policy_version_id)
+
+    # Fetch total matching record count
+    total = query.count()
+
+    # Deterministic sorting: Event timestamp DESC (newest first), then id ASC
+    query = query.order_by(
+        models.Event.timestamp.desc(),
+        models.Event.id.asc()
+    )
+
+    # Paginate and execute SELECT
+    query_results = query.offset(offset).limit(limit).all()
+
+    items = []
+    for event, hostname, policy_name, version_number in query_results:
+        items.append(
+            schemas.FleetEventResponse(
+                id=event.id,
+                type=schemas.EventTypeEnum(event.type),
+                timestamp=event.timestamp,
+                message=event.message,
+                rule_name=event.rule_name,
+                device_id=event.device_id,
+                device_hostname=hostname,
+                finding_id=event.finding_id,
+                policy_version_id=event.policy_version_id,
+                policy_name=policy_name,
+                policy_version_number=version_number
+            )
+        )
+
+    return schemas.FleetEventListResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset
+    )
+
