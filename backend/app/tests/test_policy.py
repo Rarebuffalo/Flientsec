@@ -2974,3 +2974,386 @@ def test_casing_bug_resolved(client, db):
     assert len(data["findings"]) == 1
     assert data["findings"][0]["rule_name"] == "Casing Check"
 
+
+def test_fleet_findings_and_events_read_apis(client, db):
+    from app.core import security
+    
+    # 1. Create Tenant A
+    org_a, user_a = create_org_and_user(db)
+    token_a = security.create_access_token(subject=user_a.email)
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+    # 2. Create Tenant B
+    org_b = models.Organization(id=uuid.uuid4(), name="Tenant B Org")
+    db.add(org_b)
+    user_b = models.User(
+        id=uuid.uuid4(),
+        email="tenant_b@flientsec.local",
+        hashed_password="pw"
+    )
+    db.add(user_b)
+    db.commit()
+
+    member_b = models.Member(
+        id=uuid.uuid4(),
+        user_id=user_b.id,
+        organization_id=org_b.id,
+        role="owner"
+    )
+    db.add(member_b)
+    db.commit()
+
+    token_b = security.create_access_token(subject=user_b.email)
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+    
+    # 3. Create Devices for Tenant A
+    dev_a1 = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org_a.id,
+        device_token="dev_tok_a1",
+        status="ONLINE",
+        hostname="Laptop-A1",
+        os_name="Linux",
+        os_version="Ubuntu",
+        os_arch="amd64",
+        kernel_version="6.5.0",
+        agent_version="1.0.0"
+    )
+    dev_a2 = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org_a.id,
+        device_token="dev_tok_a2",
+        status="OFFLINE",
+        hostname="Laptop-A2",
+        os_name="Arch",
+        os_version="Rolling",
+        os_arch="amd64",
+        kernel_version="6.6.0",
+        agent_version="1.0.0"
+    )
+    db.add_all([dev_a1, dev_a2])
+    
+    # 4. Create Device for Tenant B
+    dev_b = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org_b.id,
+        device_token="dev_tok_b1",
+        status="ONLINE",
+        hostname="Laptop-B1",
+        os_name="Windows",
+        os_version="11",
+        os_arch="amd64",
+        kernel_version="10.0.0",
+        agent_version="1.0.0"
+    )
+    db.add(dev_b)
+    db.commit()
+    
+    # 5. Create Policy for Tenant A
+    policy_a = models.Policy(
+        id=uuid.uuid4(),
+        organization_id=org_a.id,
+        name="Tenant A Base"
+    )
+    db.add(policy_a)
+    
+    # Create Policy for Tenant B
+    policy_b = models.Policy(
+        id=uuid.uuid4(),
+        organization_id=org_b.id,
+        name="Tenant B Base"
+    )
+    db.add(policy_b)
+    db.commit()
+
+    policy_version_a = models.PolicyVersion(
+        id=uuid.uuid4(),
+        policy_id=policy_a.id,
+        version_number=1,
+        definition_json="{}",
+        status="PUBLISHED",
+        created_by=user_a.id
+    )
+    db.add(policy_version_a)
+    db.commit()
+    
+    # 6. Seed Tenant A Findings
+    # We want: 
+    # - f1: OPEN, HIGH, last_detected = now - 5m
+    # - f2: OPEN, MEDIUM, last_detected = now - 2m
+    # - f3: RESOLVED, HIGH, last_detected = now - 1m
+    # - f4: OPEN, LOW, last_detected = now
+    # - f5: OPEN, HIGH, last_detected = now - 10m (to test chronological sorting)
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    
+    f1 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=dev_a1.id,
+        policy_id=policy_a.id,
+        rule_id="r1",
+        check_name="Check 1",
+        severity="HIGH",
+        status="OPEN",
+        drift_type="DEVICE_DRIFT",
+        last_detected_at=now - timedelta(minutes=5)
+    )
+    f2 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=dev_a1.id,
+        policy_id=policy_a.id,
+        rule_id="r2",
+        check_name="Check 2",
+        severity="medium",
+        status="OPEN",
+        drift_type="DEVICE_DRIFT",
+        last_detected_at=now - timedelta(minutes=2)
+    )
+    f3 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=dev_a2.id,
+        policy_id=policy_a.id,
+        rule_id="r3",
+        check_name="Check 3",
+        severity="high",
+        status="RESOLVED",
+        drift_type="POLICY_CHANGE_NON_COMPLIANCE",
+        last_detected_at=now - timedelta(minutes=1)
+    )
+    f4 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=dev_a2.id,
+        policy_id=policy_a.id,
+        rule_id="r4",
+        check_name="Check 4",
+        severity="low",
+        status="OPEN",
+        last_detected_at=now
+    )
+    f5 = models.Finding(
+        id=uuid.uuid4(),
+        device_id=dev_a1.id,
+        policy_id=policy_a.id,
+        rule_id="r5",
+        check_name="Check 5",
+        severity="high",
+        status="OPEN",
+        last_detected_at=now - timedelta(minutes=10)
+    )
+    
+    # 7. Seed Tenant B Finding
+    f_b = models.Finding(
+        id=uuid.uuid4(),
+        device_id=dev_b.id,
+        policy_id=policy_b.id,
+        rule_id="r_b",
+        check_name="Check B",
+        severity="high",
+        status="OPEN",
+        last_detected_at=now
+    )
+    
+    db.add_all([f1, f2, f3, f4, f5, f_b])
+    db.commit()
+    
+    # 8. Seed Tenant A Events
+    e1 = models.Event(
+        id=uuid.uuid4(),
+        device_id=dev_a1.id,
+        type="VIOLATION_TRIGGERED",
+        rule_name="r1",
+        message="Triggered r1",
+        timestamp=now - timedelta(minutes=5),
+        finding_id=f1.id,
+        policy_version_id=policy_version_a.id
+    )
+    e2 = models.Event(
+        id=uuid.uuid4(),
+        device_id=dev_a2.id,
+        type="VIOLATION_RESOLVED",
+        rule_name="r3",
+        message="Resolved r3",
+        timestamp=now - timedelta(minutes=1),
+        finding_id=f3.id,
+        policy_version_id=policy_version_a.id
+    )
+    db.add_all([e1, e2])
+    
+    # Seed Tenant B Event
+    e_b = models.Event(
+        id=uuid.uuid4(),
+        device_id=dev_b.id,
+        type="VIOLATION_TRIGGERED",
+        rule_name="r_b",
+        message="Triggered B",
+        timestamp=now,
+        finding_id=f_b.id
+    )
+    db.add(e_b)
+    db.commit()
+
+    # =================================================================
+    # A. TEST FINDINGS ENDPOINT
+    # =================================================================
+    
+    # 1. Tenant A queries its own findings
+    resp = client.get("/api/v1/findings", headers=headers_a)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 5
+    assert len(data["items"]) == 5
+    
+    # Confirm tenant isolation: Tenant A never sees Tenant B's finding
+    assert not any(item["device_id"] == str(dev_b.id) for item in data["items"])
+    assert not any(item["id"] == str(f_b.id) for item in data["items"])
+    
+    # 2. Tenant B queries its own findings
+    resp_b = client.get("/api/v1/findings", headers=headers_b)
+    assert resp_b.status_code == 200
+    data_b = resp_b.json()
+    assert data_b["total"] == 1
+    assert data_b["items"][0]["id"] == str(f_b.id)
+    
+    # 3. Tenant A queries with Tenant B's device_id -> should return 0 items
+    resp_cross = client.get(f"/api/v1/findings?device_id={dev_b.id}", headers=headers_a)
+    assert resp_cross.status_code == 200
+    assert resp_cross.json()["total"] == 0
+    assert len(resp_cross.json()["items"]) == 0
+    
+    # 4. OPEN/RESOLVED status filtering
+    resp = client.get("/api/v1/findings?status=OPEN", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 4
+    assert all(x["status"] == "OPEN" for x in resp.json()["items"])
+    
+    resp = client.get("/api/v1/findings?status=RESOLVED", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["status"] == "RESOLVED"
+    
+    # 5. Severity filtering (casing normalization: client sends uppercase enum values)
+    resp = client.get("/api/v1/findings?severity=HIGH", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 3
+    assert all(x["severity"] == "HIGH" for x in resp.json()["items"])
+    
+    # 6. Drift type filtering
+    resp = client.get("/api/v1/findings?drift_type=DEVICE_DRIFT", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 2
+    assert all(x["drift_type"] == "DEVICE_DRIFT" for x in resp.json()["items"])
+    
+    # 7. Pagination
+    resp = client.get("/api/v1/findings?limit=2&offset=1", headers=headers_a)
+    assert resp.status_code == 200
+    res_pag = resp.json()
+    assert res_pag["total"] == 5
+    assert len(res_pag["items"]) == 2
+    assert res_pag["limit"] == 2
+    assert res_pag["offset"] == 1
+    
+    # 8. Operational Sorting Order:
+    # Status: OPEN before RESOLVED
+    # Severity: HIGH before MEDIUM before LOW
+    # Recency: newest last_detected_at first
+    # deterministic: id ASC
+    resp = client.get("/api/v1/findings?limit=10", headers=headers_a)
+    items = resp.json()["items"]
+    # Expect order:
+    # 1. f1: OPEN, HIGH, 5m ago
+    # 2. f5: OPEN, HIGH, 10m ago (f1 is newer than f5, so f1 comes before f5)
+    # 3. f2: OPEN, MEDIUM, 2m ago
+    # 4. f4: OPEN, LOW, now
+    # 5. f3: RESOLVED, HIGH, 1m ago
+    assert items[0]["id"] == str(f1.id)
+    assert items[1]["id"] == str(f5.id)
+    assert items[2]["id"] == str(f2.id)
+    assert items[3]["id"] == str(f4.id)
+    assert items[4]["id"] == str(f3.id)
+    
+    # 9. Filter Composition (Intersection AND semantics)
+    resp = client.get("/api/v1/findings?status=OPEN&severity=HIGH&drift_type=DEVICE_DRIFT", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["id"] == str(f1.id)
+
+    # 10. Validation Boundary Errors
+    # Invalid enum value
+    resp = client.get("/api/v1/findings?status=INVALID", headers=headers_a)
+    assert resp.status_code == 422
+    
+    resp = client.get("/api/v1/findings?severity=critical", headers=headers_a) # case mismatch
+    assert resp.status_code == 422
+    
+    # Malformed UUID
+    resp = client.get("/api/v1/findings?device_id=not-a-uuid", headers=headers_a)
+    assert resp.status_code == 422
+    
+    # limit = 0
+    resp = client.get("/api/v1/findings?limit=0", headers=headers_a)
+    assert resp.status_code == 422
+    
+    # limit > maximum (100)
+    resp = client.get("/api/v1/findings?limit=101", headers=headers_a)
+    assert resp.status_code == 422
+    
+    # negative offset
+    resp = client.get("/api/v1/findings?offset=-5", headers=headers_a)
+    assert resp.status_code == 422
+
+    # =================================================================
+    # B. TEST EVENTS ENDPOINT
+    # =================================================================
+    
+    # 1. Tenant A queries its own events
+    resp = client.get("/api/v1/events", headers=headers_a)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    
+    # Confirm joins and metadata mapping
+    assert data["items"][0]["device_hostname"] in ["Laptop-A1", "Laptop-A2"]
+    
+    # Confirm tenant isolation: Tenant A never sees Tenant B's event
+    assert not any(item["device_id"] == str(dev_b.id) for item in data["items"])
+    assert not any(item["id"] == str(e_b.id) for item in data["items"])
+    
+    # 2. Tenant B queries its own events
+    resp_b = client.get("/api/v1/events", headers=headers_b)
+    assert resp_b.status_code == 200
+    assert resp_b.json()["total"] == 1
+    assert resp_b.json()["items"][0]["id"] == str(e_b.id)
+    
+    # 3. Tenant A queries with Tenant B's device_id -> should return 0 items
+    resp_cross = client.get(f"/api/v1/events?device_id={dev_b.id}", headers=headers_a)
+    assert resp_cross.status_code == 200
+    assert resp_cross.json()["total"] == 0
+    
+    # 4. Event type filtering
+    resp = client.get("/api/v1/events?type=VIOLATION_RESOLVED", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["id"] == str(e2.id)
+    
+    # 5. Device filtering
+    resp = client.get(f"/api/v1/events?device_id={dev_a1.id}", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["id"] == str(e1.id)
+    
+    # 6. Event sorting: newest timestamp first
+    resp = client.get("/api/v1/events", headers=headers_a)
+    items = resp.json()["items"]
+    # e2 is at now - 1m, e1 is at now - 5m. So e2 comes before e1.
+    assert items[0]["id"] == str(e2.id)
+    assert items[1]["id"] == str(e1.id)
+    
+    # 7. Combined Events filter
+    resp = client.get(f"/api/v1/events?type=VIOLATION_TRIGGERED&device_id={dev_a1.id}", headers=headers_a)
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["id"] == str(e1.id)
+
+
+
+
