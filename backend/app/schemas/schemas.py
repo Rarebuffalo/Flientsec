@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
+from enum import Enum
 
 
 # Auth Schemas
@@ -241,3 +242,77 @@ class AgentPolicyResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Fleet Findings & Events Schemas (Phase 4A)
+class FindingStatusEnum(str, Enum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+
+
+class FindingSeverityEnum(str, Enum):
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class FindingDriftTypeEnum(str, Enum):
+    DEVICE_DRIFT = "DEVICE_DRIFT"
+    POLICY_CHANGE_NON_COMPLIANCE = "POLICY_CHANGE_NON_COMPLIANCE"
+
+
+class EventTypeEnum(str, Enum):
+    VIOLATION_TRIGGERED = "VIOLATION_TRIGGERED"
+    VIOLATION_RESOLVED = "VIOLATION_RESOLVED"
+
+
+class FleetFindingResponse(BaseModel):
+    id: UUID
+    device_id: UUID
+    device_hostname: str
+    policy_id: Optional[UUID] = None
+    policy_name: Optional[str] = None
+    rule_id: str
+    check_name: str
+    severity: FindingSeverityEnum
+    status: FindingStatusEnum
+    reason: Optional[str] = None
+    drift_type: Optional[FindingDriftTypeEnum] = None
+    resolution_reason: Optional[str] = None
+    first_detected_at: datetime
+    last_detected_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FleetFindingListResponse(BaseModel):
+    items: List[FleetFindingResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class FleetEventResponse(BaseModel):
+    id: UUID
+    type: EventTypeEnum
+    timestamp: datetime
+    message: str
+    rule_name: str
+    device_id: UUID
+    device_hostname: str
+    finding_id: Optional[UUID] = None
+    policy_version_id: Optional[UUID] = None
+    policy_name: Optional[str] = None
+    policy_version_number: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FleetEventListResponse(BaseModel):
+    items: List[FleetEventResponse]
+    total: int
+    limit: int
+    offset: int
