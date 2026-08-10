@@ -112,8 +112,8 @@ export default function Dashboard() {
           title="Dashboard" 
           subtitle="Continuous security posture across your engineering workstations." 
         />
-        <div className="p-4 rounded-xl border border-red-200 bg-red-50/10 text-xs text-red-400 flex items-center space-x-2 font-mono">
-          <ShieldAlert className="h-4 w-4 flex-shrink-0 text-red-500" />
+        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-sm text-error flex items-center space-x-2 font-sans">
+          <ShieldAlert className="h-4 w-4 flex-shrink-0 text-error" />
           <span>{error} (Ensure backend service is accessible at {apiUrl})</span>
         </div>
         <button 
@@ -213,7 +213,7 @@ export default function Dashboard() {
                           <span className="font-bold text-base text-on-surface font-sans">{device.hostname}</span>
                           <StatusBadge status={device.compliance_status} />
                           {isStale && (
-                            <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold border border-warning/20 bg-warning/10 text-warning font-sans">
+                            <span className="inline-flex px-2 py-0.5 rounded-md text-xs font-bold border border-warning/20 bg-warning/10 text-warning font-sans">
                               STALE/OFFLINE
                             </span>
                           )}
@@ -229,7 +229,7 @@ export default function Dashboard() {
 
                       <div className="flex items-center space-x-4 self-end sm:self-auto">
                         <div className="text-right">
-                          <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Score</p>
+                          <p className="text-[11px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Score</p>
                           <p className="text-base font-bold font-mono text-on-surface mt-0.5">{device.compliance_score}/100</p>
                         </div>
                         <Link 
@@ -305,16 +305,16 @@ export default function Dashboard() {
           {/* Policy Baseline Info */}
           <div className="space-y-4">
             <SectionHeader title="Policy Baseline Coverage" />
-            <Panel className="p-5 space-y-3 text-xs">
+            <Panel className="p-5 space-y-3 text-sm">
               <div>
-                <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Assigned Baseline</p>
+                <p className="text-[11px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Assigned Baseline</p>
                 <p className="font-bold text-on-surface mt-1">{activePolicyName}</p>
               </div>
               <div>
-                <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider font-mono">Active Target Version</p>
+                <p className="text-[11px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Active Target Version</p>
                 <p className="font-mono font-bold text-tertiary mt-0.5">{activePolicyVer}</p>
               </div>
-              <p className="text-[10px] text-on-surface-variant leading-relaxed pt-2 border-t border-outline-variant/40">
+              <p className="text-xs text-on-surface-variant leading-relaxed pt-2 border-t border-outline-variant/40">
                 Workstations synchronize baselines locally. Evaluation provenance (such as <code>POLICY_UNAVAILABLE</code> or pending update states) are resolved on active agent handshake telemetry.
               </p>
             </Panel>

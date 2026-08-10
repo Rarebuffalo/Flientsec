@@ -34,7 +34,7 @@ export default function AdminLayout({
   if (!authorized) {
     return (
       <div className="min-h-screen bg-[#131317] flex items-center justify-center font-sans antialiased text-[#e5e1e7]">
-        <p className="text-xs font-semibold text-slate-400 animate-pulse font-mono">Redirecting to login...</p>
+        <p className="text-sm font-semibold text-on-surface-variant animate-pulse font-sans">Redirecting to login...</p>
       </div>
     )
   }

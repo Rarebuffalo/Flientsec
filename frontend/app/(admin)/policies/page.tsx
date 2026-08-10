@@ -181,7 +181,7 @@ export default function PolicyManager() {
               <button 
                 onClick={() => activateVersion(latestVersion.id)}
                 disabled={activating !== null}
-                className="mt-2 px-3 py-1 bg-tertiary hover:bg-white text-surface text-[10px] font-bold rounded transition-colors disabled:opacity-50"
+                className="mt-2 px-3 py-1.5 bg-tertiary hover:bg-white text-surface text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
               >
                 {activating === latestVersion.id ? "Activating..." : `Activate v${latestVersion.version_number}`}
               </button>
@@ -210,7 +210,7 @@ export default function PolicyManager() {
       )}
 
       {error && (
-        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error text-xs flex items-center space-x-2 shadow-sm font-mono">
+        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error text-sm flex items-center space-x-2 shadow-sm font-sans">
           <ShieldAlert className="h-4 w-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -289,7 +289,7 @@ export default function PolicyManager() {
                           </td>
                           <td className="px-5 py-3.5">
                             <span
-                              className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-semibold border ${
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold border ${
                                 isActive
                                   ? "bg-status-success/15 text-status-success border-status-success/30"
                                   : ver.status === "PUBLISHED"
@@ -354,7 +354,7 @@ export default function PolicyManager() {
         {/* SECTION 4 - RULE GUIDANCE (Right 1 column) */}
         <div className="space-y-4">
           <SectionHeader title="Rule Syntax Guidelines" />
-          <Panel className="p-5 space-y-4 text-xs leading-relaxed text-on-surface-variant">
+            <Panel className="p-5 space-y-4 text-sm leading-relaxed text-on-surface-variant">
             <p>
               FlientSec posture rules are defined in standard YAML notation.
             </p>
@@ -362,7 +362,7 @@ export default function PolicyManager() {
               <div>
                 <p className="font-bold text-on-surface">1. Supported Checks</p>
                 <p className="mt-1">Each policy constraint rule configures a check properties block:</p>
-                <ul className="list-disc pl-4 mt-1 space-y-1.5 font-mono text-[10px]">
+                <ul className="list-disc pl-4 mt-1 space-y-1.5 font-mono text-xs">
                   <li><span className="text-on-surface font-semibold">enabled</span>: true / false</li>
                   <li><span className="text-on-surface font-semibold">required</span>: true / false</li>
                   <li><span className="text-on-surface font-semibold">severity</span>: HIGH, MEDIUM, LOW</li>
@@ -372,7 +372,7 @@ export default function PolicyManager() {
               <div>
                 <p className="font-bold text-on-surface">2. Version Constraints</p>
                 <p className="mt-1">Runtimes and applications support boundary comparisons:</p>
-                <ul className="list-disc pl-4 mt-1 space-y-1.5 font-mono text-[10px]">
+                <ul className="list-disc pl-4 mt-1 space-y-1.5 font-mono text-xs">
                   <li><span className="text-on-surface font-semibold">minimum</span>: SemVer string (e.g. "22.0.0")</li>
                 </ul>
               </div>
@@ -390,7 +390,7 @@ export default function PolicyManager() {
             
             <div className="p-3 border border-outline-variant/40 rounded-lg bg-surface-container-low/40">
               <p className="font-bold text-on-surface">Synchronization</p>
-              <p className="mt-1 text-[10px]">
+              <p className="mt-1 text-xs">
                 Enrolled daemons pull, parse, and enforce active rules within 60 seconds of client handshake connection.
               </p>
             </div>

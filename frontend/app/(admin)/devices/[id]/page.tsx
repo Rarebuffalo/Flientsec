@@ -236,7 +236,7 @@ export default function DeviceDetails() {
   if (error || !device) {
     return (
       <div className="space-y-4 font-sans text-xs">
-        <div className="p-4 rounded-xl border border-red-950 bg-red-950/10 text-error">
+        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error">
           {error || "Workstation profile not found."}
         </div>
         <Link href="/dashboard" className="inline-flex items-center space-x-1 font-bold text-tertiary hover:underline">
@@ -408,7 +408,7 @@ export default function DeviceDetails() {
                   <div className="p-8 text-center text-on-surface-variant text-xs flex flex-col items-center justify-center space-y-2">
                     <ShieldCheck className="h-8 w-8 text-status-success" />
                     <p className="font-bold text-on-surface">No active violations</p>
-                    <p className="text-[10px]">This workstation is fully compliant with the assigned posture policy baseline.</p>
+                    <p className="text-xs">This workstation is fully compliant with the assigned posture policy baseline.</p>
                   </div>
                 ) : (
                   openFindings.map((finding) => (
@@ -418,7 +418,7 @@ export default function DeviceDetails() {
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <span className="font-semibold text-base text-on-surface font-sans">{finding.check_name}</span>
                             <SeverityBadge severity={finding.severity} />
-                            <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-semibold border border-outline-variant/60 bg-surface-container-low text-on-surface-variant font-sans">
+                            <span className="inline-flex px-2 py-0.5 rounded-md text-xs font-semibold border border-outline-variant/60 bg-surface-container-low text-on-surface-variant font-sans">
                               {getDriftLabel(finding.drift_type)}
                             </span>
                           </div>
@@ -487,7 +487,7 @@ export default function DeviceDetails() {
                           {resolvedFindings.map((f) => (
                             <tr key={f.id} className="hover:bg-surface-container-high/10">
                               <td className="px-5 py-3.5 font-semibold text-on-surface">{f.check_name}</td>
-                              <td className="px-5 py-3.5 text-on-surface-variant font-mono text-xs">
+                              <td className="px-5 py-3.5 text-on-surface-variant font-sans text-sm">
                                 {f.drift_type ? getDriftLabel(f.drift_type) : "Initial"}
                               </td>
                               <td className="px-5 py-3.5">
@@ -499,7 +499,7 @@ export default function DeviceDetails() {
                                   {getResolutionLabel(f.resolution_reason)}
                                 </span>
                               </td>
-                              <td className="px-5 py-3.5 text-on-surface-variant font-mono text-xs">
+                              <td className="px-5 py-3.5 text-on-surface-variant font-sans text-sm">
                                 {f.resolved_at ? new Date(f.resolved_at).toLocaleString() : ""}
                               </td>
                             </tr>

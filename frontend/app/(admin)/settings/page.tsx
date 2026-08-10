@@ -156,7 +156,7 @@ export default function SettingsPage() {
       )}
 
       {error && (
-        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error text-xs flex items-center space-x-2 shadow-sm font-mono">
+        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error text-sm flex items-center space-x-2 shadow-sm font-sans">
           <ShieldAlert className="h-4 w-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -167,11 +167,11 @@ export default function SettingsPage() {
         {/* Onboarding Guide Card */}
         <div className="space-y-4 lg:col-span-1">
           <SectionHeader title="Onboarding Guide" icon={HelpCircle} />
-          <Panel className="p-5 space-y-4 text-xs text-on-surface-variant font-medium leading-relaxed">
+          <Panel className="p-5 space-y-4 text-sm text-on-surface-variant font-medium leading-relaxed">
             <p>
               To enroll new developer workstations into the organizational posture inventory, follow this sequence:
             </p>
-            <ol className="list-decimal list-inside space-y-3 font-sans text-xs">
+            <ol className="list-decimal list-inside space-y-3 font-sans text-sm">
               <li>
                 <span className="font-bold text-on-surface">Generate a token</span> using the keys panel.
               </li>
@@ -180,7 +180,7 @@ export default function SettingsPage() {
               </li>
               <li>
                 <span className="font-bold text-on-surface">Run the installation script</span> on the workstation:
-                <pre className="mt-2.5 p-3 bg-terminal-black border border-outline-variant/40 rounded-lg text-[10px] font-mono text-on-surface whitespace-pre-wrap leading-relaxed select-all">
+                <pre className="mt-2.5 p-3 bg-terminal-black border border-outline-variant/40 rounded-lg text-xs font-mono text-on-surface whitespace-pre-wrap leading-relaxed select-all">
                   {`curl -fsSL http://localhost:8000/install.sh | env ENROLLMENT_TOKEN="<token>" bash`}
                 </pre>
               </li>
