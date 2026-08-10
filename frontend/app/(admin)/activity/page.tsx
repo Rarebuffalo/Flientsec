@@ -22,7 +22,6 @@ import {
 } from "../../../components/ui"
 
 type EventType = "VIOLATION_TRIGGERED" | "VIOLATION_RESOLVED"
-type TimeRange = "ALL" | "24H" | "7D" | "30D"
 
 interface FleetEvent {
   id: string
@@ -94,18 +93,6 @@ function getRuleDisplay(ruleName: string): string {
   if (!ruleName) return "Security rule"
   const parts = ruleName.split(".")
   return parts.length > 1 ? parts[0] : ruleName
-}
-
-function isWithinTimeRange(timestamp: string, range: TimeRange): boolean {
-  if (range === "ALL") return true
-  const eventTime = new Date(timestamp).getTime()
-  const now = Date.now()
-  const ranges: Record<Exclude<TimeRange, "ALL">, number> = {
-    "24H": 24 * 60 * 60 * 1000,
-    "7D": 7 * 24 * 60 * 60 * 1000,
-    "30D": 30 * 24 * 60 * 60 * 1000,
-  }
-  return now - eventTime <= ranges[range]
 }
 
 function groupEvents(events: FleetEvent[]): EventGroup[] {
@@ -234,7 +221,6 @@ export default function ActivityPage() {
   const [offset, setOffset] = useState(0)
   const [eventTypeFilter, setEventTypeFilter] = useState<"ALL" | EventType>("ALL")
   const [deviceFilter, setDeviceFilter] = useState<string>("ALL")
-  const [timeRange, setTimeRange] = useState<TimeRange>("ALL")
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -309,20 +295,14 @@ export default function ActivityPage() {
     setOffset(0)
   }, [eventTypeFilter, deviceFilter])
 
-  const visibleEvents = useMemo(
-    () => events.filter((event: FleetEvent) => isWithinTimeRange(event.timestamp, timeRange)),
-    [events, timeRange]
-  )
-
-  const groupedEvents = useMemo(() => groupEvents(visibleEvents), [visibleEvents])
+  const groupedEvents = useMemo(() => groupEvents(events), [events])
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const currentPage = Math.floor(offset / limit) + 1
-  const hasActiveFilters = eventTypeFilter !== "ALL" || deviceFilter !== "ALL" || timeRange !== "ALL"
+  const hasActiveFilters = eventTypeFilter !== "ALL" || deviceFilter !== "ALL"
 
   const handleClearFilters = (): void => {
     setEventTypeFilter("ALL")
     setDeviceFilter("ALL")
-    setTimeRange("ALL")
     setOffset(0)
   }
 
@@ -373,7 +353,7 @@ export default function ActivityPage() {
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between bg-surface-container-low border border-outline-variant/60 rounded-xl p-4">
         <div className="flex flex-wrap gap-4 w-full sm:w-auto">
           <label className="space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">
               Event type
             </span>
             <select
@@ -390,7 +370,7 @@ export default function ActivityPage() {
           </label>
 
           <label className="space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">
               Workstation
             </span>
             <select
@@ -404,22 +384,6 @@ export default function ActivityPage() {
                   {device.hostname}
                 </option>
               ))}
-            </select>
-          </label>
-
-          <label className="space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">
-              Time range
-            </span>
-            <select
-              value={timeRange}
-              onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setTimeRange(event.target.value as TimeRange)}
-              className="px-3 py-2 bg-surface-container border border-outline-variant rounded-lg text-xs font-semibold text-on-surface focus:outline-none focus:border-tertiary font-sans"
-            >
-              <option value="ALL">All time</option>
-              <option value="24H">Last 24 hours</option>
-              <option value="7D">Last 7 days</option>
-              <option value="30D">Last 30 days</option>
             </select>
           </label>
         </div>
@@ -456,7 +420,7 @@ export default function ActivityPage() {
             <span>Retry</span>
           </button>
         </Panel>
-      ) : visibleEvents.length === 0 ? (
+      ) : events.length === 0 ? (
         <Panel className="p-16">
           {hasActiveFilters ? (
             <div className="space-y-5">
@@ -513,12 +477,6 @@ export default function ActivityPage() {
                 {Math.min(total, offset + limit)}
               </span>{" "}
               of <span className="font-semibold text-on-surface">{total}</span> events
-              {timeRange !== "ALL" && (
-                <span className="text-on-surface-variant/70">
-                  {" "}
-                  ({visibleEvents.length} visible after time filter)
-                </span>
-              )}
               {" "} · Page {currentPage} of {totalPages}
             </span>
             <div className="flex space-x-2 font-sans select-none">
