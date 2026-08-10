@@ -1889,7 +1889,6 @@ def get_fleet_findings(
         else_=3
     )
 
-
     query = query.order_by(
         status_order.asc(),
         severity_order.asc(),
@@ -1952,7 +1951,7 @@ def get_fleet_events(
     # which are matched to Devices inside the tenant's organization list.
     query = (
         db.query(
-            models.Event, 
+            models.Event,
             models.Device.hostname,
             models.Policy.name,
             models.PolicyVersion.version_number
@@ -2009,4 +2008,3 @@ def get_fleet_events(
         limit=limit,
         offset=offset
     )
-
