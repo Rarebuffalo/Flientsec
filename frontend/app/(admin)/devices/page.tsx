@@ -213,6 +213,7 @@ export default function WorkstationsPage() {
           <button 
             onClick={fetchDevices}
             className="p-2 border border-outline-variant/60 text-on-surface-variant hover:text-on-surface rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors"
+            aria-label="Refresh fleet list"
             title="Refresh fleet list"
           >
             <RotateCw className="h-4.5 w-4.5" />
@@ -423,6 +424,15 @@ export default function WorkstationsPage() {
                       <tr 
                         key={device.id} 
                         onClick={() => router.push(`/devices/${device.id}`)}
+                        onKeyDown={(event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault()
+                            router.push(`/devices/${device.id}`)
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`View workstation ${device.hostname}`}
                         className="hover:bg-surface-container-high/15 transition-colors cursor-pointer group"
                       >
                         {/* Hostname & shortened UUID */}

@@ -199,6 +199,7 @@ export default function FindingsPage() {
           <button 
             onClick={fetchFindings}
             className="p-2 border border-outline-variant hover:bg-surface-container-high rounded-lg text-on-surface-variant hover:text-on-surface transition-colors"
+            aria-label="Reload findings"
             title="Reload list"
           >
             <RotateCw className="h-4.5 w-4.5" />
@@ -243,7 +244,7 @@ export default function FindingsPage() {
         <div className="flex flex-wrap gap-4 w-full sm:w-auto">
           {/* Severity selector */}
           <div className="space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">Severity</span>
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">Severity</span>
             <select
               value={severityFilter}
               onChange={(e) => setSeverityFilter(e.target.value)}
@@ -258,7 +259,7 @@ export default function FindingsPage() {
 
           {/* Classification selector */}
           <div className="space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">Classification</span>
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">Classification</span>
             <select
               value={classificationFilter}
               onChange={(e) => setClassificationFilter(e.target.value)}
@@ -272,7 +273,7 @@ export default function FindingsPage() {
 
           {/* Workstation Selector */}
           <div className="space-y-1">
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">Workstation</span>
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-on-surface-variant/70 font-sans">Workstation</span>
             <select
               value={deviceFilter}
               onChange={(e) => setDeviceFilter(e.target.value)}
@@ -358,6 +359,15 @@ export default function FindingsPage() {
                 <tr 
                   key={row.id}
                   onClick={() => handleRowClick(row)}
+                  onKeyDown={(event: React.KeyboardEvent<HTMLTableRowElement>) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      handleRowClick(row)
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Inspect finding ${row.check_name} on ${row.device_hostname}`}
                   className="hover:bg-surface-container-high/50 cursor-pointer transition-colors group"
                 >
                   <td className="px-5 py-4">
@@ -470,7 +480,7 @@ export default function FindingsPage() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Finding Title/Identification */}
               <div className="space-y-1.5">
-                <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans">Security Check</span>
+                <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans">Security Check</span>
                 <h3 className="text-lg font-bold text-on-surface leading-snug font-sans">{selectedFinding.check_name}</h3>
                 <div className="flex items-center space-x-2.5 pt-1 select-none">
                   <StatusBadge status={selectedFinding.status} />
@@ -483,20 +493,20 @@ export default function FindingsPage() {
               {/* Technical / Structural Data Fields */}
               <div className="space-y-5">
                 <div>
-                  <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1.5">Rule Identifier</span>
+                  <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1.5">Rule Identifier</span>
                   <code className="text-xs px-2 py-1 rounded bg-[#101014] border border-outline-variant/40 text-tertiary font-mono leading-none block w-fit">
                     {selectedFinding.rule_id}
                   </code>
                 </div>
 
                 <div>
-                  <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1">Workstation Endpoint</span>
+                  <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1">Workstation Endpoint</span>
                   <p className="text-sm font-semibold text-on-surface font-sans">{selectedFinding.device_hostname}</p>
                   <span className="block text-xs font-mono text-on-surface-variant/70 mt-1 select-all">{selectedFinding.device_id}</span>
                 </div>
 
                 <div>
-                  <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1">Classification</span>
+                  <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1">Classification</span>
                   <p className="text-sm font-semibold text-on-surface font-sans">
                     {selectedFinding.drift_type === "DEVICE_DRIFT" ? "Device drift" : selectedFinding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "Policy change" : "Standard compliance"}
                   </p>
@@ -512,14 +522,14 @@ export default function FindingsPage() {
 
                 {selectedFinding.policy_name && (
                   <div>
-                    <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1">Associated Baseline Policy</span>
+                    <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1">Associated Baseline Policy</span>
                     <p className="text-sm font-semibold text-on-surface font-sans">{selectedFinding.policy_name}</p>
                     {selectedFinding.policy_id && <span className="block text-xs font-mono text-on-surface-variant/70 mt-1 select-all">{selectedFinding.policy_id}</span>}
                   </div>
                 )}
 
                 <div>
-                  <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1.5">Failure Reason / Context</span>
+                  <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1.5">Failure Reason / Context</span>
                   <p className="text-xs text-on-surface font-sans bg-terminal-black/80 border border-outline-variant/60 rounded-xl p-4.5 leading-relaxed whitespace-pre-wrap leading-loose">
                     {selectedFinding.reason || "No detail provided by security telemetry daemon."}
                   </p>
@@ -528,13 +538,13 @@ export default function FindingsPage() {
                 {/* Date stamps grid */}
                 <div className="grid grid-cols-2 gap-4 pt-1 text-xs">
                   <div>
-                    <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-0.5">First Detected</span>
+                    <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-0.5">First Detected</span>
                     <p className="text-on-surface font-sans" title={new Date(selectedFinding.first_detected_at).toLocaleString()}>
                       {new Date(selectedFinding.first_detected_at).toLocaleDateString()} {new Date(selectedFinding.first_detected_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                     </p>
                   </div>
                   <div>
-                    <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-0.5">Last Seen / Evaluated</span>
+                    <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-0.5">Last Seen / Evaluated</span>
                     <p className="text-on-surface font-sans" title={new Date(selectedFinding.last_detected_at).toLocaleString()}>
                       {new Date(selectedFinding.last_detected_at).toLocaleDateString()} {new Date(selectedFinding.last_detected_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                     </p>
@@ -546,14 +556,14 @@ export default function FindingsPage() {
                   <div className="pt-3 space-y-3">
                     <hr className="border-outline-variant/40" />
                     <div>
-                      <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1.5">Archived Resolution Detail</span>
+                      <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-1.5">Archived Resolution Detail</span>
                       <p className="text-xs text-on-surface font-sans bg-[#11241a] border border-status-success/30 rounded-xl p-4 leading-relaxed">
                         {selectedFinding.resolution_reason || "Violation successfully mitigated, config baseline check PASS."}
                       </p>
                     </div>
                     {selectedFinding.resolved_at && (
                       <div>
-                        <span className="block text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-0.5">Archived Timestamp</span>
+                        <span className="block text-[11px] font-bold text-on-surface-variant/60 uppercase tracking-wider font-sans mb-0.5">Archived Timestamp</span>
                         <p className="text-xs text-on-surface font-sans" title={new Date(selectedFinding.resolved_at).toLocaleString()}>
                           {new Date(selectedFinding.resolved_at).toLocaleString()}
                         </p>
