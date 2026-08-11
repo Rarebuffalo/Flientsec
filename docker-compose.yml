@@ -5,12 +5,12 @@ services:
     image: postgres:15-alpine
     container_name: flientsec-db
     restart: always
+    network_mode: host
     environment:
       POSTGRES_USER: flientsec
       POSTGRES_PASSWORD: flientsec_dev_pass
       POSTGRES_DB: flientsec
-    ports:
-      - "5433:5432"
+    command: -p 5433
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -20,10 +20,9 @@ services:
       dockerfile: Dockerfile
     container_name: flientsec-backend
     restart: always
-    ports:
-      - "8000:8000"
+    network_mode: host
     environment:
-      DATABASE_URL: postgresql://flientsec:flientsec_dev_pass@db:5432/flientsec
+      DATABASE_URL: postgresql://flientsec:flientsec_dev_pass@localhost:5433/flientsec
       JWT_SECRET: super_secret_jwt_key_for_dev_123
       ACCESS_TOKEN_EXPIRE_MINUTES: 1440
       ENV: dev
@@ -36,8 +35,7 @@ services:
       dockerfile: Dockerfile
     container_name: flientsec-frontend
     restart: always
-    ports:
-      - "3000:3000"
+    network_mode: host
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:
@@ -45,3 +43,4 @@ services:
 
 volumes:
   postgres_data:
+
