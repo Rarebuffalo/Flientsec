@@ -337,6 +337,72 @@ func TestLoadLKGReturnsProvenance(t *testing.T) {
 	}
 }
 
+func TestLoadLKGRejectsHashMismatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	content := `{"schema_version": 1, "metadata": {"name": "Tampered"}, "rules": []}`
+	payload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Tampered Policy",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 3,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": "badhash",
+		"issued_at": "2026-08-04T12:00:00Z"
+	}`, content)
+
+	if err := os.WriteFile(policyPath, []byte(payload), 0600); err != nil {
+		t.Fatalf("failed to write tampered LKG: %v", err)
+	}
+
+	_, loadErr := LoadLKG(policyPath)
+	if loadErr == nil {
+		t.Fatal("expected LoadLKG to reject cached policy with hash mismatch")
+	}
+	if !tContains(loadErr.Error(), "cached LKG policy validation failed") {
+		t.Errorf("expected validation failure, got: %v", loadErr)
+	}
+}
+
+func TestLoadLKGRejectsMalformedRules(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "flientsec_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	content := `{"schema_version": 1, "rules": [{"id": ""}]}`
+	payload := fmt.Sprintf(`{
+		"policy_id": "8483bb78-75c1-4b14-8f74-cc797d39a3f9",
+		"policy_name": "Malformed Policy",
+		"version_id": "76dfd221-a3f1-4db5-9e32-23c2a1ad4f39",
+		"version_number": 4,
+		"schema_version": 1,
+		"content": %q,
+		"content_hash": %q,
+		"issued_at": "2026-08-04T12:00:00Z"
+	}`, content, computeHash(content))
+
+	if err := os.WriteFile(policyPath, []byte(payload), 0600); err != nil {
+		t.Fatalf("failed to write malformed LKG: %v", err)
+	}
+
+	_, loadErr := LoadLKG(policyPath)
+	if loadErr == nil {
+		t.Fatal("expected LoadLKG to reject cached policy with malformed rules")
+	}
+	if !tContains(loadErr.Error(), "cached LKG policy validation failed") {
+		t.Errorf("expected validation failure, got: %v", loadErr)
+	}
+}
+
 func computeHash(data string) string {
 	h := sha256.New()
 	h.Write([]byte(data))
