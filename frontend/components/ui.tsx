@@ -3,9 +3,10 @@
 import React, { useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { 
-  ShieldCheck, Laptop, Terminal, Calendar, Activity, Settings, 
-  Menu, X, LogOut, ChevronRight, AlertTriangle 
+import {
+  Shield, ShieldAlert, ShieldCheck, Laptop, Terminal,
+  Activity, Settings, Menu, X, LogOut, ChevronRight, AlertTriangle,
+  FolderDot, Server, LayoutGrid, FileText
 } from "lucide-react"
 
 // ==========================================
@@ -13,39 +14,59 @@ import {
 // ==========================================
 
 export function StatusBadge({ status }: { status: string }) {
-  let classes = "bg-surface-container-low text-on-surface-variant border-outline-variant"
+  let cls = "badge-neutral"
   let label = status
 
   const normalized = status.toUpperCase()
   if (normalized === "CURRENT" || normalized === "PASS" || normalized === "ONLINE" || normalized === "VERIFIED" || normalized === "COMPLIANT") {
-    classes = "bg-status-success/10 text-status-success border-status-success/20"
+    cls = "badge-compliant"
+    label = "Compliant"
   } else if (normalized === "OUTDATED_POLICY" || normalized === "OUTDATED" || normalized === "WARN" || normalized === "WARNING" || normalized === "UPDATE PENDING") {
-    classes = "bg-warning/15 text-warning border-warning/30"
+    cls = "badge-warning"
+    label = "Warning"
   } else if (normalized === "FAIL" || normalized === "FAILED" || normalized === "DECOMMISSIONED" || normalized === "POLICY_UNAVAILABLE" || normalized === "FAILING") {
-    classes = "bg-error/15 text-error border-error/30"
+    cls = "badge-failing"
+    label = normalized === "DECOMMISSIONED" ? "Decommissioned" : "Failing"
   }
 
+  // Format label to match custom mapping if needed
+  if (normalized === "PASS") label = "Compliant"
+  if (normalized === "FAIL") label = "Failing"
+  if (normalized === "WARN") label = "Warning"
+  if (normalized === "ONLINE") label = "Online"
+
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold border font-sans tracking-wide ${classes}`}>
-      {label.replace("_", " ")}
+    <span className={`badge ${cls}`}>
+      <span className="dot"></span>
+      {label}
     </span>
   )
 }
 
 export function SeverityBadge({ severity }: { severity: string }) {
-  let classes = "bg-surface-container-low text-on-surface-variant border-outline-variant"
   const normalized = severity.toUpperCase()
+  let c = "sev-low"
   if (normalized === "HIGH" || normalized === "CRITICAL") {
-    classes = "bg-error/10 text-error border-error/20"
+    c = "sev-high"
   } else if (normalized === "MEDIUM") {
-    classes = "bg-warning/10 text-warning border-warning/20"
+    c = "sev-medium"
   } else if (normalized === "LOW" || normalized === "INFO") {
-    classes = "bg-surface-container-high text-on-surface-variant border-outline-variant"
+    c = "sev-low"
   }
 
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border font-sans tracking-wide ${classes}`}>
+    <span className={`sev ${c}`}>
       {normalized}
+    </span>
+  )
+}
+
+export function ConnectionBadge({ status, lastSeen }: { status: string, lastSeen: string }) {
+  const isOnline = status.toUpperCase() === "ONLINE"
+  return (
+    <span className={`conn ${isOnline ? 'online' : 'offline'}`}>
+      <span className="dot"></span>
+      {isOnline ? 'Online' : `Offline · ${lastSeen}`}
     </span>
   )
 }
@@ -54,28 +75,28 @@ export function SeverityBadge({ severity }: { severity: string }) {
 // 2. Simple Panels & Layout Wrappers
 // ==========================================
 
-export function Panel({ 
-  children, 
-  className = "" 
-}: { 
+export function Panel({
+  children,
+  className = ""
+}: {
   children: React.ReactNode
-  className?: string 
+  className?: string
 }) {
   return (
-    <div className={`bg-surface-container border border-outline-variant rounded-xl overflow-hidden shadow-sm ${className}`}>
+    <div className={`panel ${className}`}>
       {children}
     </div>
   )
 }
 
-export function TerminalPanel({ 
-  title, 
-  content, 
-  onCopy 
-}: { 
+export function TerminalPanel({
+  title,
+  content,
+  onCopy
+}: {
   title: string
   content: string
-  onCopy?: () => void 
+  onCopy?: () => void
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -87,85 +108,78 @@ export function TerminalPanel({
   }
 
   return (
-    <div className="bg-terminal-black border border-outline-variant rounded-xl overflow-hidden font-mono text-xs">
-      <div className="px-5 py-3 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low/40">
-        <span className="text-on-surface-variant flex items-center space-x-2 font-bold font-sans text-xs">
-          <Terminal className="h-4 w-4 text-tertiary" />
-          <span>{title}</span>
-        </span>
-        <button 
+    <div className="evidence flex flex-col space-y-2">
+      <div className="flex items-center justify-between pb-2 border-b border-border-soft">
+        <span className="text-text-secondary font-bold font-sans text-xs">{title}</span>
+        <button
           onClick={handleCopy}
-          className="text-xs font-semibold text-tertiary hover:text-white transition-colors"
+          className="text-xs font-semibold text-brand hover:text-white transition-colors"
         >
           {copied ? "Copied!" : "Copy"}
         </button>
       </div>
-      <pre className="p-5 overflow-x-auto text-on-surface leading-relaxed whitespace-pre bg-terminal-black text-[13px] font-mono">
+      <pre className="overflow-x-auto pt-2 leading-relaxed whitespace-pre text-[12.6px] font-mono text-[#B9E6CD]">
         <code>{content}</code>
       </pre>
     </div>
   )
 }
 
-export function StatCard({ 
-  label, 
-  value, 
-  subtext, 
-  status 
-}: { 
+export function StatCard({
+  label,
+  value,
+  subtext,
+  status
+}: {
   label: string
   value: string | number
   subtext?: string
-  status?: string 
+  status?: string
 }) {
   return (
-    <div className="bg-surface-container border border-outline-variant rounded-xl p-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-on-surface-variant/80 font-bold uppercase tracking-wider font-sans">{label}</span>
-        {status && <StatusBadge status={status} />}
+    <div className="stat-cell panel flex flex-col justify-between">
+      <div>
+        <div className="stat-label">{label}</div>
+        <div className="stat-value">{value}</div>
       </div>
-      <div className="text-3xl font-semibold tracking-tight text-on-surface font-sans">{value}</div>
-      {subtext && <p className="text-xs text-on-surface-variant mt-1.5 font-sans">{subtext}</p>}
+      {subtext && <div className="stat-foot">{subtext}</div>}
     </div>
   )
 }
 
-export function PageHeader({ 
-  title, 
-  subtitle, 
-  actions 
-}: { 
+export function PageHeader({
+  title,
+  subtitle,
+  actions
+}: {
   title: string
   subtitle?: string
-  actions?: React.ReactNode 
+  actions?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-outline-variant/60">
-      <div className="space-y-1.5">
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-on-surface font-sans">{title}</h1>
-        {subtitle && <p className="text-sm text-on-surface-variant font-normal leading-relaxed">{subtitle}</p>}
+    <div className="page-head flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-border-soft">
+      <div>
+        <h1 className="page-title">{title}</h1>
+        {subtitle && <p className="page-sub">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center space-x-3">{actions}</div>}
     </div>
   )
 }
 
-export function SectionHeader({ 
-  title, 
-  icon: Icon, 
-  actions 
-}: { 
+export function SectionHeader({
+  title,
+  icon: Icon,
+  actions
+}: {
   title: string
   icon?: any
-  actions?: React.ReactNode 
+  actions?: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between pb-3.5 border-b border-outline-variant/50">
-      <h3 className="text-xs md:text-[13px] font-bold uppercase tracking-wider flex items-center space-x-2.5 text-on-surface-variant font-sans">
-        {Icon && <Icon className="h-4 w-4 text-tertiary" />}
-        <span>{title}</span>
-      </h3>
-      {actions && <div className="flex items-center">{actions}</div>}
+    <div className="section-head">
+      <div className="section-title">{title}</div>
+      {actions && <div className="section-hint">{actions}</div>}
     </div>
   )
 }
@@ -177,53 +191,53 @@ export function SectionHeader({
 export function LoadingState({ message = "Loading details..." }: { message?: string }) {
   return (
     <div className="py-16 flex flex-col items-center justify-center space-y-4">
-      <Activity className="h-7 w-7 text-tertiary animate-pulse" />
-      <span className="text-sm text-on-surface-variant font-medium animate-pulse">{message}</span>
+      <Activity className="h-7 w-7 text-brand animate-pulse" />
+      <span className="text-sm text-text-secondary font-medium animate-pulse">{message}</span>
     </div>
   )
 }
 
-export function EmptyState({ 
-  title, 
-  description, 
-  icon: Icon = ShieldCheck 
-}: { 
+export function EmptyState({
+  title,
+  description,
+  icon: Icon = ShieldCheck
+}: {
   title: string
   description?: string
-  icon?: any 
+  icon?: any
 }) {
   return (
-    <div className="p-8 text-center text-on-surface-variant text-sm flex flex-col items-center justify-center space-y-2 border border-dashed border-outline-variant rounded-xl bg-surface-container-low/20">
-      <Icon className="h-9 w-9 text-on-surface-variant/40" />
-      <p className="font-semibold text-on-surface">{title}</p>
-      {description && <p className="text-xs max-w-sm text-on-surface-variant/80 mt-1 leading-relaxed">{description}</p>}
+    <div className="empty">
+      <Icon className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+      <div className="empty-title">{title}</div>
+      {description && <div className="empty-body">{description}</div>}
     </div>
   )
 }
 
-export function DataTable({ 
-  headers, 
-  rows, 
-  renderRow 
-}: { 
+export function DataTable({
+  headers,
+  rows,
+  renderRow
+}: {
   headers: string[]
   rows: any[]
-  renderRow: (row: any, idx: number) => React.ReactNode 
+  renderRow: (row: any, idx: number) => React.ReactNode
 }) {
   return (
-    <div className="overflow-x-auto border border-outline-variant rounded-xl bg-surface-container">
-      <table className="w-full text-left border-collapse text-[13px]">
+    <div className="table-wrap">
+      <table>
         <thead>
-          <tr className="border-b border-outline-variant bg-surface-container-low/40 font-semibold text-on-surface-variant uppercase tracking-wider text-xs font-sans">
+          <tr>
             {headers.map((h, i) => (
-              <th key={i} className="px-5 py-3.5">{h}</th>
+              <th key={i}>{h}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-outline-variant/40 text-on-surface font-sans">
+        <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={headers.length} className="px-5 py-10 text-center text-on-surface-variant">
+              <td colSpan={headers.length} className="text-center text-text-muted py-8">
                 No records found.
               </td>
             </tr>
@@ -240,48 +254,46 @@ export function DataTable({
 // 4. Sidebar components
 // ==========================================
 
-export function SidebarSection({ 
-  title, 
-  children 
-}: { 
+export function SidebarSection({
+  title,
+  children
+}: {
   title: string
-  children: React.ReactNode 
+  children: React.ReactNode
 }) {
   return (
-    <div className="space-y-1.5">
-      <h3 className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant/40 px-3 pt-3.5 font-sans">
-        {title}
-      </h3>
-      <div className="space-y-0.5">{children}</div>
+    <div className="nav-group">
+      <div className="nav-label">{title}</div>
+      {children}
     </div>
   )
 }
 
-export function SidebarLink({ 
-  href, 
-  label, 
-  icon: Icon, 
+export function SidebarLink({
+  href,
+  label,
+  icon: Icon,
   disabled = false,
-  badge 
-}: { 
+  badge
+}: {
   href: string
   label: string
   icon: any
   disabled?: boolean
-  badge?: string 
+  badge?: string
 }) {
   const pathname = usePathname()
   const isActive = pathname === href
 
   if (disabled) {
     return (
-      <div className="flex items-center justify-between px-3 py-2.5 rounded-lg text-on-surface-variant/30 cursor-not-allowed text-sm font-medium select-none">
-        <div className="flex items-center space-x-3">
-          <Icon className="h-4.5 w-4.5 opacity-50" />
+      <div className="flex items-center justify-between px-3 py-2 rounded-lg text-text-muted/50 cursor-not-allowed text-[13.8px] font-medium select-none">
+        <div className="flex items-center space-x-2.5">
+          <Icon className="h-4 w-4 opacity-50" />
           <span>{label}</span>
         </div>
         {badge && (
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-outline-variant/20 bg-surface-container-low text-on-surface-variant/30">
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-border bg-surface-2 text-text-muted/50">
             {badge}
           </span>
         )}
@@ -290,27 +302,12 @@ export function SidebarLink({
   }
 
   return (
-    <Link 
+    <Link
       href={href}
-      className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-        isActive 
-          ? "bg-surface-container-high text-on-surface font-bold border border-outline-variant/60" 
-          : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low/40"
-      }`}
+      className={`nav-item ${isActive ? "active" : ""}`}
     >
-      <div className="flex items-center space-x-3">
-        <Icon className={`h-4.5 w-4.5 ${isActive ? "text-tertiary" : "text-on-surface-variant/70"}`} />
-        <span>{label}</span>
-      </div>
-      {badge && (
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-          isActive 
-            ? "border-tertiary/30 bg-tertiary/10 text-tertiary" 
-            : "border-outline-variant bg-surface-container-low text-on-surface-variant"
-        }`}>
-          {badge}
-        </span>
-      )}
+      <Icon />
+      <span>{label}</span>
     </Link>
   )
 }
@@ -319,120 +316,97 @@ export function SidebarLink({
 // 5. Unified AppShell Structure
 // ==========================================
 
-export function AppShell({ 
+export function AppShell({
   children,
   userEmail,
-  onLogout 
-}: { 
+  onLogout
+}: {
   children: React.ReactNode
   userEmail: string | null
-  onLogout: () => void 
+  onLogout: () => void
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-surface-container-lowest border-r border-outline-variant/85 p-5 justify-between select-none">
-      <div className="space-y-6">
-        {/* Logo/Header */}
-        <div className="flex items-center space-x-3 px-3 py-2.5">
-          <ShieldCheck className="h-6 w-6 text-tertiary" />
-          <span className="font-bold tracking-tight text-xl text-on-surface font-sans">FlientSec</span>
+    <>
+      <div className="brand">
+        <div className="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z"/>
+          </svg>
         </div>
-
-        {/* Sidebar Sections */}
-        <div className="space-y-4">
-          <SidebarSection title="Overview">
-            <SidebarLink href="/dashboard" label="Dashboard" icon={Activity} />
-          </SidebarSection>
-
-          <SidebarSection title="Posture">
-            <SidebarLink href="/devices" label="Devices" icon={Laptop} />
-            <SidebarLink href="/findings" label="Findings" icon={ShieldCheck} />
-            <SidebarLink href="/activity" label="Activity" icon={Calendar} />
-          </SidebarSection>
-
-          <SidebarSection title="Control">
-            <SidebarLink href="/policies" label="Policies" icon={Terminal} />
-          </SidebarSection>
-
-          <SidebarSection title="System">
-            <SidebarLink href="/settings" label="Settings" icon={Settings} />
-          </SidebarSection>
-        </div>
+        <span className="brand-name">FLIENTSEC</span>
       </div>
 
-      {/* Footer / Account Section */}
-      <div className="pt-4 border-t border-outline-variant/60 space-y-4">
-        <div className="flex items-center justify-between px-3 py-1.5 bg-surface-container rounded-lg border border-outline-variant/40">
-          <span className="text-xs text-on-surface-variant font-medium tracking-wider font-sans">Default Org</span>
-          <span className="h-2 w-2 rounded-full bg-status-success"></span>
-        </div>
+      <SidebarSection title="Overview">
+        <SidebarLink href="/dashboard" label="Dashboard" icon={LayoutGrid} />
+      </SidebarSection>
 
-        <div className="flex items-center justify-between px-2">
-          <div className="flex items-center space-x-3 min-w-0">
-            <div className="h-9 w-9 rounded-full bg-tertiary-container text-on-tertiary-container flex-shrink-0 flex items-center justify-center text-xs font-bold uppercase border border-tertiary/20">
-              {userEmail ? userEmail.slice(0, 2) : "AD"}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-on-surface truncate leading-none">Admin</p>
-              <p className="text-xs text-on-surface-variant truncate mt-1.5 leading-none">
-                {userEmail || "admin@flientsec.local"}
-              </p>
-            </div>
-          </div>
+      <SidebarSection title="Posture">
+        <SidebarLink href="/devices" label="Devices" icon={Server} />
+        <SidebarLink href="/findings" label="Findings" icon={Shield} />
+        <SidebarLink href="/activity" label="Activity" icon={Activity} />
+      </SidebarSection>
 
-          <button 
-            onClick={onLogout}
-            title="Sign Out"
-            className="p-2 rounded-lg text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors"
-          >
-            <LogOut className="h-4.5 w-4.5" />
-          </button>
+      <SidebarSection title="Control">
+        <SidebarLink href="/policies" label="Policies" icon={FileText} />
+      </SidebarSection>
+
+      <SidebarSection title="System">
+        <SidebarLink href="/settings" label="Settings" icon={Settings} />
+      </SidebarSection>
+
+      <div className="sidebar-footer">
+        <div className="org-avatar">DO</div>
+        <div className="min-w-0 flex-1">
+          <div className="org-name truncate">Default Org</div>
+          <div className="org-role truncate">{userEmail || "Administrator"}</div>
         </div>
+        <button
+          onClick={onLogout}
+          title="Sign Out"
+          className="btn btn-ghost btn-sm p-1 hover:text-danger"
+        >
+          <LogOut className="h-4.5 w-4.5" />
+        </button>
       </div>
-    </div>
+    </>
   )
 
   return (
-    <div className="dark min-h-screen bg-surface text-on-surface flex flex-col lg:flex-row font-sans antialiased selection:bg-tertiary/20 selection:text-tertiary">
-      {/* Desktop Sidebar (Persistent) */}
-      <aside className="hidden lg:block w-[240px] flex-shrink-0 h-screen sticky top-0">
-        {sidebarContent}
-      </aside>
+    <div className="dark min-h-screen bg-bg text-text-primary font-sans antialiased selection:bg-brand selection:text-bg">
+      <div className="app">
+        {/* Desktop Sidebar (Persistent) */}
+        <aside className="hidden lg:flex sidebar">
+          {sidebarContent}
+        </aside>
 
-      {/* Mobile Top Bar */}
-      <header className="lg:hidden h-14 border-b border-outline-variant/80 bg-surface-container-lowest/80 backdrop-blur sticky top-0 z-40 px-4 flex items-center justify-between">
-        <div className="flex items-center space-x-2.5">
-          <ShieldCheck className="h-5 w-5 text-tertiary" />
-          <span className="font-bold tracking-tight text-lg text-on-surface font-sans">FlientSec</span>
+        {/* Mobile Top Bar */}
+        <div className="mobile-topbar lg:hidden">
+          <button onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
+            <Menu className="h-5 w-5" />
+          </button>
+          <span style={{ fontWeight: 700, fontSize: "14px" }}>FlientSec</span>
         </div>
-        <button 
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors"
-        >
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
-      </header>
 
-      {/* Mobile Drawer Backdrop */}
-      {mobileOpen && (
-        <div 
+        {/* Mobile Drawer Backdrop */}
+        <div
           onClick={() => setMobileOpen(false)}
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          className={`sidebar-scrim ${mobileOpen ? 'open' : ''}`}
         />
-      )}
 
-      {/* Mobile Drawer Sidebar */}
-      <div className={`lg:hidden fixed top-0 bottom-0 left-0 z-50 w-[240px] transform transition-transform duration-300 ease-in-out ${
-        mobileOpen ? "translate-x-0" : "-translate-x-full"
-      }`}>
-        {sidebarContent}
-      </div>
+        {/* Mobile Drawer Sidebar */}
+        <aside className={`sidebar lg:hidden fixed top-0 bottom-0 left-0 transition-transform duration-200 ${
+          mobileOpen ? "open" : "-translate-x-full"
+        }`}>
+          {sidebarContent}
+        </aside>
 
-      {/* Page Content area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <main className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-8">
-          {children}
+        {/* Page Content area */}
+        <main className="main flex flex-col">
+          <div className="view active">
+            {children}
+          </div>
         </main>
       </div>
     </div>
