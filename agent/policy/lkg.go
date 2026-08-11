@@ -138,10 +138,13 @@ func LoadLKG(filePath string) (*AgentPolicyResponse, error) {
 		return nil, err
 	}
 
-	var resp AgentPolicyResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse cached LKG policy: %w", err)
+	resp, err := ValidatePolicy(data)
+	if err != nil {
+		if strings.Contains(err.Error(), "response contract validation failed") {
+			return nil, fmt.Errorf("failed to parse cached LKG policy: %w", err)
+		}
+		return nil, fmt.Errorf("cached LKG policy validation failed: %w", err)
 	}
 
-	return &resp, nil
+	return resp, nil
 }
