@@ -25,6 +25,17 @@ export default function AdminLayout({
     }
   }, [router])
 
+  useEffect(() => {
+    document.documentElement.classList.add("dark")
+    document.body.style.backgroundColor = "#0B0D0C"
+    document.body.style.color = "#F1F5F2"
+    return () => {
+      document.documentElement.classList.remove("dark")
+      document.body.style.backgroundColor = ""
+      document.body.style.color = ""
+    }
+  }, [])
+
   const handleLogout = () => {
     localStorage.removeItem("flientsec_token")
     localStorage.removeItem("flientsec_email")
