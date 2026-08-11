@@ -1,9 +1,10 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
-import { Key, Plus, Trash2, ShieldCheck, HelpCircle, Copy, Check, ShieldAlert } from "lucide-react"
-import { 
-  PageHeader, Panel, SectionHeader, LoadingState, EmptyState 
+import { useRouter } from "next/navigation"
+import { RotateCw, Check, Copy } from "lucide-react"
+import {
+  PageHeader, LoadingState, EmptyState
 } from "../../../components/ui"
 
 interface EnrollmentToken {
@@ -16,12 +17,14 @@ interface EnrollmentToken {
 }
 
 export default function SettingsPage() {
+  const router = useRouter()
   const [tokens, setTokens] = useState<EnrollmentToken[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -42,7 +45,7 @@ export default function SettingsPage() {
       if (!res.ok) {
         if (res.status === 401) {
           localStorage.removeItem("flientsec_token")
-          window.location.href = "/login"
+          router.push("/login")
           return
         }
         throw new Error("Failed to load enrollment tokens.")
@@ -93,8 +96,8 @@ export default function SettingsPage() {
       }
 
       const newToken = await res.json()
-      setTokens((prev) => [...prev, newToken])
-      setSuccess("Enrollment token successfully generated.")
+      setTokens((prev) => [newToken, ...prev])
+      showToast("Token generated")
     } catch (err: any) {
       setError(err.message || "Failed to generate enrollment token.")
     } finally {
@@ -123,153 +126,194 @@ export default function SettingsPage() {
       }
 
       setTokens((prev) => prev.filter((t) => t.id !== tokenId))
-      setSuccess("Enrollment token revoked successfully.")
+      showToast("Token revoked")
     } catch (err: any) {
       setError(err.message || "Failed to revoke enrollment token.")
     }
   }
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, msg: string = "Copied to clipboard") => {
     navigator.clipboard.writeText(text)
     setCopiedToken(text)
+    showToast(msg)
     setTimeout(() => setCopiedToken(null), 2000)
   }
 
+  const showToast = (msg: string) => {
+    setToastMsg(msg)
+    const t = document.getElementById("toast")
+    if (t) {
+      t.classList.add("show")
+      setTimeout(() => t.classList.remove("show"), 1800)
+    }
+  }
+
   if (loading) {
-    return <LoadingState message="Retrieving configuration parameter settings..." />
+    return <LoadingState message="Retrieving configuration settings..." />
   }
 
   return (
-    <div className="space-y-8 flex-1 flex flex-col font-sans max-w-5xl w-full mx-auto">
-      
+    <div className="space-y-8 flex-1 flex flex-col font-sans">
+
       {/* Page Header */}
-      <PageHeader 
-        title="Settings" 
-        subtitle="Manage workstation enrollment keys, setup guides, and organization configuration." 
+      <PageHeader
+        title="Settings"
+        subtitle="Enroll new workstations and manage onboarding."
       />
 
-      {success && (
-        <div className="p-4 rounded-xl border border-status-success/30 bg-status-success/5 text-status-success text-xs flex items-center space-x-2 shadow-sm font-medium">
-          <ShieldCheck className="h-4 w-4 flex-shrink-0" />
-          <span>{success}</span>
-        </div>
-      )}
-
       {error && (
-        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error text-sm flex items-center space-x-2 shadow-sm font-sans">
-          <ShieldAlert className="h-4 w-4 flex-shrink-0" />
+        <div className="panel p-5 border border-danger/30 bg-danger/5 text-danger flex items-center justify-between text-sm font-medium">
           <span>{error}</span>
+          <button onClick={fetchTokens} className="btn btn-sm">Retry</button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        
-        {/* Onboarding Guide Card */}
-        <div className="space-y-4 lg:col-span-1">
-          <SectionHeader title="Onboarding Guide" icon={HelpCircle} />
-          <Panel className="p-5 space-y-4 text-sm text-on-surface-variant font-medium leading-relaxed">
-            <p>
-              To enroll new developer workstations into the organizational posture inventory, follow this sequence:
-            </p>
-            <ol className="list-decimal list-inside space-y-3 font-sans text-sm">
-              <li>
-                <span className="font-bold text-on-surface">Generate a token</span> using the keys panel.
-              </li>
-              <li>
-                <span className="font-bold text-on-surface">Share the token</span> with developers (valid for 7 days).
-              </li>
-              <li>
-                <span className="font-bold text-on-surface">Run the installation script</span> on the workstation:
-                <pre className="mt-2.5 p-3 bg-terminal-black border border-outline-variant/40 rounded-lg text-xs font-mono text-on-surface whitespace-pre-wrap leading-relaxed select-all">
-                  {`curl -fsSL http://localhost:8000/install.sh | env ENROLLMENT_TOKEN="<token>" bash`}
-                </pre>
-              </li>
-            </ol>
-          </Panel>
+      {/* ENROLLMENT TOKENS */}
+      <div className="section">
+        <div className="section-head">
+          <div className="section-title">Enrollment tokens</div>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="btn btn-primary btn-sm"
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" style={{ width: "14px", height: "14px", stroke: "currentColor" }}>
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Generate token
+          </button>
         </div>
 
-        {/* Enrollment Tokens Card */}
-        <div className="lg:col-span-2 space-y-4">
-          <SectionHeader title="Enrollment Keys" />
-          <Panel>
-            <div className="px-5 py-3.5 border-b border-outline-variant/60 flex items-center justify-between bg-surface-container-low/40">
-              <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider font-sans flex items-center space-x-2">
-                <Key className="h-4 w-4 text-tertiary" />
-                <span>Active Enrollment Keys</span>
-              </span>
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                className="inline-flex items-center space-x-2 px-4 py-2 bg-tertiary hover:bg-white text-surface text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+        <div className="table-wrap">
+          {tokens.length === 0 ? (
+            <div className="empty">
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.6" className="h-6 w-6 text-text-muted mb-3 mx-auto">
+                <path d="M9 21H5a2 2 0 0 1-2-2V9l4-5h10l4 5v10a2 2 0 0 1-2 2h-4"/>
+                <path d="M3 9h18"/>
+              </svg>
+              <div className="empty-title">No active tokens</div>
+              <div className="empty-body">Generate one to enroll a new workstation.</div>
+            </div>
+          ) : (
+            <table>
+              <tbody>
+                {tokens.map((t) => {
+                  const isExpired = new Date(t.expires_at).getTime() < Date.now()
+                  const displayHash = t.token_hash.slice(0, 16) + "..."
+                  return (
+                    <tr key={t.id}>
+                      <td data-label="Token" className="cell-primary font-mono text-xs">
+                        {displayHash}
+                      </td>
+                      <td data-label="Created" className="muted">
+                        {new Date(t.created_at).toLocaleDateString()}
+                      </td>
+                      <td data-label="Expires">
+                        {isExpired ? (
+                          <span className="badge badge-neutral" style={{ color: "var(--danger)" }}>Expired</span>
+                        ) : (
+                          <span className="badge badge-neutral">
+                            {new Date(t.expires_at).toLocaleDateString()}
+                          </span>
+                        )}
+                      </td>
+                      <td data-label="Actions" style={{ textAlign: "right" }} className="space-x-2">
+                        <button
+                          onClick={() => copyToClipboard(t.token_hash, "Token copied")}
+                          className="btn btn-ghost btn-sm"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          onClick={() => handleRevoke(t.id)}
+                          className="btn btn-ghost btn-sm text-danger"
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* INSTALL THE AGENT */}
+      <div className="section">
+        <div className="section-head">
+          <div className="section-title">Install the agent</div>
+        </div>
+        <div className="panel">
+          <div className="step">
+            <div className="step-num">1</div>
+            <div>
+              <div className="step-title">Generate an enrollment token</div>
+              <div className="step-body">Tokens are single-use and expire after 24 hours. Generate one above for each new workstation.</div>
+            </div>
+          </div>
+          <div className="step">
+            <div className="step-num">2</div>
+            <div>
+              <div className="step-title">Install the agent</div>
+              <div className="step-body">Run this on the target workstation:</div>
+              <div
+                className="copy-row cursor-pointer group"
+                onClick={() => copyToClipboard(`curl -fsSL ${apiUrl}/install.sh | sh`, "Copied installer command")}
               >
-                <Plus className="h-4 w-4" />
-                <span>{generating ? "Generating..." : "Generate Key"}</span>
-              </button>
+                <span>curl -fsSL {apiUrl}/install.sh | sh</span>
+                <button className="btn btn-ghost btn-sm copy-btn">
+                  <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" style={{ width: "14px", height: "14px" }}>
+                    <rect x="9" y="9" width="12" height="12" rx="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                </button>
+              </div>
             </div>
-
-            <div className="p-5">
-              {tokens.length === 0 ? (
-                <EmptyState 
-                  title="No active enrollment keys" 
-                  description="Generate a key above to start onboarding workstations." 
-                  icon={Key}
-                />
-              ) : (
-                <div className="overflow-x-auto border border-outline-variant/50 rounded-xl bg-surface-container-low">
-                  <table className="w-full text-left border-collapse text-[13px]">
-                    <thead>
-                      <tr className="border-b border-outline-variant bg-surface-container-low/60 font-medium text-on-surface-variant uppercase tracking-wider text-xs font-sans">
-                        <th className="py-3.5 px-5">Enrollment Key</th>
-                        <th className="py-3.5 px-5 font-sans">Created</th>
-                        <th className="py-3.5 px-5 font-sans">Expires</th>
-                        <th className="py-3.5 px-5 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-outline-variant/30 text-on-surface font-sans">
-                      {tokens.map((token) => (
-                        <tr key={token.id} className="hover:bg-surface-container-high/10 transition-colors">
-                          <td className="py-3.5 px-5 font-mono text-xs text-on-surface">
-                            <div className="flex items-center space-x-2">
-                              <span className="truncate max-w-[180px] select-all">{token.token_hash}</span>
-                              <button
-                                onClick={() => copyToClipboard(token.token_hash)}
-                                className="text-on-surface-variant hover:text-on-surface transition-colors"
-                                title="Copy Key"
-                              >
-                                {copiedToken === token.token_hash ? (
-                                  <Check className="h-4 w-4 text-status-success" />
-                                ) : (
-                                  <Copy className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-5 text-on-surface-variant font-mono text-xs">
-                            {new Date(token.created_at).toLocaleDateString()}
-                          </td>
-                          <td className="py-3.5 px-5 text-on-surface-variant font-mono text-xs">
-                            {new Date(token.expires_at).toLocaleDateString()}
-                          </td>
-                          <td className="py-3.5 px-5 text-right">
-                            <button
-                              onClick={() => handleRevoke(token.id)}
-                              className="inline-flex items-center space-x-1 text-error hover:text-red-400 transition-colors"
-                              title="Revoke Token"
-                            >
-                              <Trash2 className="h-4.5 w-4.5" />
-                              <span className="text-xs font-semibold font-sans">Revoke</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+          </div>
+          <div className="step" style={{ marginBottom: 0 }}>
+            <div className="step-num">3</div>
+            <div>
+              <div className="step-title">Register with your token</div>
+              <div className="step-body">Complete enrollment using the token generated in step 1:</div>
+              <div
+                className="copy-row cursor-pointer group"
+                onClick={() => copyToClipboard(`flientsec-agent enroll --token=<ENROLLMENT_TOKEN>`, "Copied enroll command")}
+              >
+                <span>flientsec-agent enroll --token=&lt;ENROLLMENT_TOKEN&gt;</span>
+                <button className="btn btn-ghost btn-sm copy-btn">
+                  <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" style={{ width: "14px", height: "14px" }}>
+                    <rect x="9" y="9" width="12" height="12" rx="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="secondary-text text-xs mt-2">
+                Once registered, the workstation appears under <b className="text-text-secondary">Devices</b> within a few seconds.
+              </div>
             </div>
-          </Panel>
+          </div>
         </div>
+      </div>
 
+      {/* ROADMAP NOTES */}
+      <div className="section" style={{ marginBottom: 0 }}>
+        <div className="roadmap-note">
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" style={{ width: "13px", height: "13px", stroke: "currentColor" }}>
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M12 8v5M12 16h.01"/>
+          </svg>
+          SSO, notifications, and scheduled reports are on the roadmap — not yet available.
+        </div>
+      </div>
+
+      {/* Toast popup */}
+      <div className="toast" id="toast">
+        <svg viewBox="0 0 24 24" fill="none" strokeWidth="2.5">
+          <path d="M20 6 9 17l-5-5"/>
+        </svg>
+        <span>{toastMsg || "Copied"}</span>
       </div>
     </div>
   )
