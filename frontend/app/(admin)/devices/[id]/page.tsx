@@ -3,11 +3,11 @@
 import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { 
-  ArrowLeft, Laptop, ShieldCheck, ShieldAlert, Activity, Calendar, CheckCircle2, XCircle, ChevronDown, ChevronUp 
+import {
+  ArrowLeft, ShieldAlert, ShieldCheck
 } from "lucide-react"
-import { 
-  PageHeader, SectionHeader, Panel, TerminalPanel, StatusBadge, SeverityBadge, LoadingState, EmptyState 
+import {
+  StatusBadge, ConnectionBadge, LoadingState, EmptyState
 } from "../../../../components/ui"
 
 interface Device {
@@ -63,6 +63,24 @@ interface HistoryEvent {
   policy_version_id: string | null
 }
 
+// Relative time formatter helper
+function getRelativeTime(dateString: string | null): string {
+  if (!dateString) return "Never"
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now.getTime() - date.getTime()
+  if (diffMs < 0) return "Just now"
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return "Just now"
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDays = Math.floor(diffHr / 24)
+  if (diffDays === 1) return "Yesterday"
+  return `${diffDays}d ago`
+}
+
 export default function DeviceDetails() {
   const params = useParams()
   const router = useRouter()
@@ -77,7 +95,8 @@ export default function DeviceDetails() {
   const [history, setHistory] = useState<HistoryEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showResolved, setShowResolved] = useState(false)
+
+  const [activeTab, setActiveTab] = useState<"active" | "resolved">("active")
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -181,54 +200,6 @@ export default function DeviceDetails() {
     }
   }
 
-  // Get remediation command snippet
-  const getRemediation = (ruleName: string, os: string) => {
-    const isArch = os.toLowerCase().includes("arch")
-    const isDebian = os.toLowerCase().includes("ubuntu") || os.toLowerCase().includes("debian")
-
-    switch (ruleName.toLowerCase()) {
-      case "firewall":
-        return "sudo ufw enable || sudo systemctl enable --now firewalld"
-      case "ssh":
-        return "sudo systemctl disable --now sshd || sudo systemctl disable --now ssh"
-      case "updates":
-        if (isArch) return "sudo pacman -Syu"
-        if (isDebian) return "sudo apt-get update && sudo apt-get upgrade -y"
-        return "sudo dnf upgrade -y"
-      case "node":
-        return "nvm install 22 && nvm use 22"
-      case "docker":
-        if (isArch) return "sudo pacman -S docker && sudo systemctl enable --now docker"
-        if (isDebian) return "sudo apt-get install docker.io -y"
-        return "sudo dnf install docker -y"
-      default:
-        return "# Consult system security compliance manual for fix actions"
-    }
-  }
-
-  // Map raw drift type enums to readable labels
-  const getDriftLabel = (driftType: string | null) => {
-    if (driftType === "DEVICE_DRIFT") return "Device drift"
-    if (driftType === "POLICY_CHANGE_NON_COMPLIANCE") return "Policy change"
-    return "Initial check failure"
-  }
-
-  // Map resolution reasons to readable labels
-  const getResolutionLabel = (reason: string | null) => {
-    if (reason === "REMEDIATED") return "Remediated"
-    if (reason === "POLICY_RULE_REMOVED") return "Policy rule removed"
-    if (reason === "POLICY_REASSIGNED") return "Policy reassigned"
-    return reason || "Resolved"
-  }
-
-  // Map raw provenance_status enums to readable alignment status
-  const getAlignmentStatus = (status: string | null) => {
-    if (status === "CURRENT") return "Compliant"
-    if (status === "OUTDATED_POLICY") return "Update pending"
-    if (status === "POLICY_UNAVAILABLE") return "Policy unavailable"
-    return "Unknown"
-  }
-
   if (loading) {
     return <LoadingState message="Retrieving workstation security posture..." />
   }
@@ -236,346 +207,296 @@ export default function DeviceDetails() {
   if (error || !device) {
     return (
       <div className="space-y-4 font-sans text-xs">
-        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-error">
+        <div className="panel p-5 border border-danger/30 bg-danger/5 text-danger">
           {error || "Workstation profile not found."}
         </div>
-        <Link href="/dashboard" className="inline-flex items-center space-x-1 font-bold text-tertiary hover:underline">
-          <ArrowLeft className="h-4 w-4" />
-          <span>Back to dashboard</span>
+        <Link href="/devices" className="btn btn-ghost btn-sm">
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          <span>Back to devices</span>
         </Link>
       </div>
     )
   }
 
-  // Chronologically merge events and checkruns
-  const timelineItems = [
-    ...history.map(item => ({
-      id: `ev-${item.id}`,
-      type: "event",
-      timestamp: item.timestamp,
-      message: item.message,
-      eventType: item.type,
-      ruleName: item.rule_name,
-    })),
-    ...checkRuns.map(run => ({
-      id: `run-${run.id}`,
-      type: "check_run",
-      timestamp: run.timestamp,
-      message: `Workstation Posture Score Evaluated: ${run.score}/100 (${run.status === "PASS" ? "Compliant" : "Failing"})`,
-      score: run.score,
-      status: run.status,
-      policyName: run.policy_name,
-      versionNumber: run.version_number,
-    }))
-  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+  // Find top active issue if it exists
+  const topIssue = openFindings[0] || null
+
+  // Chronologically merge events
+  const timelineItems = history.map(item => ({
+    id: item.id,
+    type: item.type,
+    timestamp: item.timestamp,
+    message: item.message,
+    ruleName: item.rule_name,
+  })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+  const formattedLastSeen = getRelativeTime(device.last_checkin)
 
   return (
-      <div className="space-y-8 flex-1 flex flex-col font-sans">
-        
-        {/* Page navigation & title header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-outline-variant/60">
-          <div className="space-y-2">
-            <Link href="/dashboard" className="inline-flex items-center space-x-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors">
-              <ArrowLeft className="h-4 w-4" />
-              <span>Dashboard</span>
-            </Link>
-            <div className="flex items-center space-x-3.5 flex-wrap gap-y-2">
-              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-on-surface">{device.hostname}</h1>
-              <span
-                className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
-                  device.status === "ONLINE"
-                    ? "bg-status-success/10 text-status-success border-status-success/20"
-                    : "bg-surface-container-high text-on-surface-variant border-outline-variant"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${device.status === "ONLINE" ? "bg-status-success" : "bg-on-surface-variant/40"}`}></span>
-                <span className="text-[11px] uppercase tracking-wider font-semibold font-sans">{device.status === "ONLINE" ? "Online" : "Offline"}</span>
-              </span>
-              {device.status !== "DECOMMISSIONED" && (
-                <button
-                  onClick={handleRevoke}
-                  className="px-2.5 py-1 bg-error/10 hover:bg-error/20 text-error text-xs font-semibold rounded-lg border border-error/20 transition-colors"
-                >
-                  Revoke Device
-                </button>
-              )}
-            </div>
-          </div>
+    <div className="space-y-8 flex-1 flex flex-col font-sans">
 
-          <div className="flex items-center space-x-4">
-            <div className="text-right">
-              <p className="text-xs text-on-surface-variant/80 font-bold uppercase tracking-wider font-sans">Posture Score</p>
-              <p className="text-3xl font-bold font-mono tracking-tight mt-0.5 text-on-surface">
-                <span className={device.compliance_score >= 90 ? "text-status-success" : device.compliance_score >= 70 ? "text-warning" : "text-error"}>
-                  {device.compliance_score}/100
-                </span>
-              </p>
-            </div>
+      {/* Back navigation */}
+      <div>
+        <Link href="/devices" className="btn btn-ghost btn-sm" style={{ marginBottom: "16px" }}>
+          <ArrowLeft className="h-4 w-4 inline mr-1" />
+          Back to devices
+        </Link>
+      </div>
+
+      {/* Device Header */}
+      <div className="detail-header">
+        <div>
+          <div className="detail-title-row">
+            <div className="detail-title">{device.hostname}</div>
+            <ConnectionBadge status={device.status} lastSeen={formattedLastSeen} />
             <StatusBadge status={device.compliance_status} />
           </div>
+          <div className="detail-meta">
+            <div className="detail-meta-item">UUID <b className="mono select-all">{device.id}</b></div>
+            <div className="detail-meta-item">Last check-in <b>{device.last_checkin ? new Date(device.last_checkin).toLocaleString() : "Never"}</b></div>
+          </div>
         </div>
 
-        {/* Two Column Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          
-          {/* LEFT COLUMN: Specifications & Policy Alignment */}
-          <div className="space-y-6 lg:col-span-1">
-            {/* Specifications Card */}
-            <div className="space-y-4">
-              <SectionHeader title="Specifications" icon={Laptop} />
-              <Panel className="p-6">
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">UUID</p>
-                    <p className="font-mono text-xs text-on-surface mt-1 truncate select-all">{device.id}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Operating System</p>
-                    <p className="font-semibold text-on-surface mt-1">{device.os_name} {device.os_version}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Architecture</p>
-                      <p className="font-semibold text-on-surface mt-1">{device.os_arch}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Agent</p>
-                      <p className="font-mono font-bold text-on-surface mt-1">{device.agent_version}</p>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Kernel Version</p>
-                    <p className="font-mono text-xs text-on-surface mt-1 truncate">{device.kernel_version}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Last Active Handshake</p>
-                    <p className="font-medium text-on-surface mt-1">
-                      {device.last_checkin ? new Date(device.last_checkin).toLocaleString() : "never"}
-                    </p>
-                  </div>
-                </div>
-              </Panel>
+        <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: "16px" }}>
+          {device.status !== "DECOMMISSIONED" && (
+            <button
+              onClick={handleRevoke}
+              className="btn btn-sm text-danger hover:bg-danger/10 border-danger/25"
+            >
+              Decommission
+            </button>
+          )}
+          <div>
+            <div
+              className="stat-value"
+              style={{ fontSize: "38px", color: device.compliance_score >= 90 ? "var(--brand)" : device.compliance_score >= 70 ? "var(--warning)" : "var(--danger)" }}
+            >
+              {device.compliance_score}/100
             </div>
+            <div className="section-hint">Compliance score</div>
+          </div>
+        </div>
+      </div>
 
-            {/* Policy Alignment Card */}
-            <div className="space-y-4">
-              <SectionHeader title="Policy Alignment" icon={ShieldCheck} />
-              <Panel className="p-6">
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Desired Baseline</p>
-                    <p className="font-semibold text-on-surface mt-1">
-                      {effectivePolicy ? `${effectivePolicy.name} (v${effectivePolicy.active_version_number || "Draft"})` : "None Assigned"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Last Evaluated Baseline</p>
-                    <p className="font-semibold text-on-surface mt-1">
-                      {latestRun?.policy_name ? `${latestRun.policy_name} (v${latestRun.version_number || "?"})` : "None"}
-                    </p>
-                  </div>
-                  
-                  <div className="pt-3.5 border-t border-outline-variant/40">
-                    <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans mb-2">Sync Status</p>
-                    <StatusBadge status={getAlignmentStatus(latestRun?.provenance_status || null)} />
-                    <p className="text-xs font-mono text-on-surface-variant/80 mt-2">
-                      Context: {latestRun?.provenance_status || "UNKNOWN"}
-                    </p>
-                  </div>
-
-                  {latestRun?.content_hash && (
-                    <div>
-                      <p className="text-xs text-on-surface-variant/80 font-semibold uppercase tracking-wider font-sans">Evaluated Hash</p>
-                      <p className="text-xs font-mono text-on-surface-variant mt-2 break-all bg-surface-container-low p-2.5 border border-outline-variant/40 rounded-lg">
-                        {latestRun.content_hash}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </Panel>
+      {/* Signature Diagnostic Chain */}
+      <div className="section">
+        <div className="chain">
+          <div className="chain-link">
+            <div className="chain-eyebrow">Workstation</div>
+            <div className="chain-value">{device.hostname}</div>
+          </div>
+          <div className="chain-link">
+            <div className="chain-eyebrow">Status</div>
+            <div className="chain-value" style={{ color: device.compliance_status === "PASS" ? "var(--brand)" : device.compliance_status === "WARN" ? "var(--warning)" : "var(--danger)" }}>
+              {device.compliance_status === "PASS" ? "Compliant" : device.compliance_status === "WARN" ? "Warning" : "Failing"} · {device.compliance_score}/100
             </div>
           </div>
+          <div className="chain-link">
+            <div className="chain-eyebrow">Top issue</div>
+            <div className="chain-value truncate">{topIssue ? topIssue.check_name : "None"}</div>
+          </div>
+          <div className="chain-link">
+            <div className="chain-eyebrow">Severity</div>
+            <div className="chain-value" style={{ color: topIssue?.severity === "HIGH" ? "var(--danger)" : topIssue?.severity === "MEDIUM" ? "var(--warning)" : "inherit" }}>
+              {topIssue ? topIssue.severity : "—"}
+            </div>
+          </div>
+          <div className="chain-link">
+            <div className="chain-eyebrow">Classification</div>
+            <div className="chain-value mono">{topIssue ? (topIssue.drift_type || "DEVICE_DRIFT") : "—"}</div>
+          </div>
+          <div className="chain-link">
+            <div className="chain-eyebrow">Policy</div>
+            <div className="chain-value mono truncate">
+              {latestRun?.policy_name || "Baseline"} v{latestRun?.version_number || "?"}
+            </div>
+          </div>
+          <div className="chain-link">
+            <div className="chain-eyebrow">Action</div>
+            <div className="chain-value" style={{ color: topIssue ? "var(--danger)" : "var(--brand)" }}>
+              {topIssue ? "Remediation required" : "No action needed"}
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* RIGHT COLUMN: Active Findings, Resolved Findings, Timeline */}
-        <div className="lg:col-span-2 space-y-6">
-          
-          {/* Active findings */}
-          <div className="space-y-4">
-            <SectionHeader title="Active Security Findings" />
-            <Panel>
-              <div className="divide-y divide-outline-variant/30">
-                {openFindings.length === 0 ? (
-                  <div className="p-8 text-center text-on-surface-variant text-xs flex flex-col items-center justify-center space-y-2">
-                    <ShieldCheck className="h-8 w-8 text-status-success" />
-                    <p className="font-bold text-on-surface">No active violations</p>
-                    <p className="text-xs">This workstation is fully compliant with the assigned posture policy baseline.</p>
-                  </div>
-                ) : (
-                  openFindings.map((finding) => (
-                    <div key={finding.id} className="p-5 space-y-4">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                            <span className="font-semibold text-base text-on-surface font-sans">{finding.check_name}</span>
-                            <SeverityBadge severity={finding.severity} />
-                            <span className="inline-flex px-2 py-0.5 rounded-md text-xs font-semibold border border-outline-variant/60 bg-surface-container-low text-on-surface-variant font-sans">
-                              {getDriftLabel(finding.drift_type)}
-                            </span>
-                          </div>
-                          <p className="text-sm text-on-surface-variant">{finding.reason || "Violated baseline requirement rules."}</p>
-                          <div className="text-xs text-on-surface-variant/80 font-sans flex items-center space-x-2">
-                            <span>Rule:</span>
-                            <span className="font-mono text-[11px] bg-surface-container-high/40 px-1.5 py-0.5 rounded border border-outline-variant/40 select-all">
-                              {finding.rule_id}
-                            </span>
-                            <span>·</span>
-                            <span>Detected: {new Date(finding.first_detected_at).toLocaleString()}</span>
-                          </div>
-                        </div>
-                        <span className="flex-shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-error/15 text-error border border-error/30 font-sans">
-                          FAIL
-                        </span>
-                      </div>
+      {/* Device Information */}
+      <div className="section">
+        <div className="section-head"><div className="section-title">Device information</div></div>
+        <div className="info-grid">
+          <div className="info-cell">
+            <div className="info-label">Operating system</div>
+            <div className="info-value">{device.os_name} {device.os_version}</div>
+          </div>
+          <div className="info-cell">
+            <div className="info-label">Architecture</div>
+            <div className="info-value">{device.os_arch}</div>
+          </div>
+          <div className="info-cell">
+            <div className="info-label">Kernel</div>
+            <div className="info-value truncate">{device.kernel_version}</div>
+          </div>
+          <div className="info-cell">
+            <div className="info-label">Agent version</div>
+            <div className="info-value">{device.agent_version}</div>
+          </div>
+        </div>
+      </div>
 
-                      {/* Remediation code block */}
-                      <TerminalPanel 
-                        title="Remediation Copy-Paste Fix" 
-                        content={getRemediation(finding.rule_id, device.os_name)}
-                      />
-                    </div>
-                  ))
-                )}
+      {/* Policy Alignment */}
+      <div className="section">
+        <div className="section-head"><div className="section-title">Policy alignment</div></div>
+        <div className="align-panel">
+          <div className="align-cell">
+            <div className="align-label">Desired policy</div>
+            <div className="align-value">{effectivePolicy ? `${effectivePolicy.name} v${effectivePolicy.active_version_number || "Draft"}` : "None Assigned"}</div>
+          </div>
+          <div className="align-arrow">
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </div>
+          <div className="align-cell">
+            <div className="align-label">Last evaluated</div>
+            <div className="align-value">{latestRun?.policy_name || "Baseline"} v{latestRun?.version_number || "?"}</div>
+          </div>
+          <div className="align-arrow">
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </div>
+          <div className="align-cell">
+            <div className="align-label">Status</div>
+            <div className="align-value" style={{ color: latestRun?.provenance_status === "CURRENT" ? "var(--success)" : "var(--warning)" }}>
+              {latestRun?.provenance_status === "CURRENT" ? "Up to date" : "Update pending"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Findings Section */}
+      <div className="section">
+        <div className="tabs">
+          <div
+            onClick={() => setActiveTab("active")}
+            className={`tab ${activeTab === "active" ? "active" : ""}`}
+          >
+            Active findings
+          </div>
+          <div
+            onClick={() => setActiveTab("resolved")}
+            className={`tab ${activeTab === "resolved" ? "active" : ""}`}
+          >
+            Resolved
+          </div>
+        </div>
+
+        <div className="table-wrap">
+          {activeTab === "active" ? (
+            openFindings.length === 0 ? (
+              <div className="empty">
+                <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+                <div className="empty-title">No active findings</div>
+                <div className="empty-body">This workstation currently satisfies its assigned policy.</div>
               </div>
-            </Panel>
-          </div>
-
-          {/* Historical resolved findings - Collapsible */}
-          <div className="space-y-2">
-            <Panel>
-              <button
-                onClick={() => setShowResolved(!showResolved)}
-                className="w-full px-5 py-4.5 flex items-center justify-between hover:bg-surface-container-high/20 transition-colors text-left"
-              >
-                <div className="flex items-center space-x-2.5">
-                  <ShieldCheck className="h-5 w-5 text-status-success" />
-                  <span className="text-sm font-semibold text-on-surface font-sans">Historical Resolved Findings</span>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <span className="text-xs text-on-surface-variant font-semibold bg-surface-container-high px-2.5 py-1 rounded-md border border-outline-variant/40 font-sans">
-                    Archived: {resolvedFindings.length}
-                  </span>
-                  {showResolved ? <ChevronUp className="h-4 w-4 text-on-surface-variant" /> : <ChevronDown className="h-4 w-4 text-on-surface-variant" />}
-                </div>
-              </button>
-
-              {showResolved && (
-                <div className="p-5 border-t border-outline-variant/35 bg-surface-container-lowest/20">
-                  {resolvedFindings.length === 0 ? (
-                    <p className="text-xs text-on-surface-variant text-center py-4">No resolved checks recorded for this device.</p>
-                  ) : (
-                    <div className="overflow-x-auto border border-outline-variant/50 rounded-xl bg-surface-container-low">
-                      <table className="w-full text-left border-collapse text-sm">
-                        <thead>
-                          <tr className="border-b border-outline-variant bg-surface-container-low/60 font-semibold text-on-surface-variant uppercase tracking-wider text-xs font-sans">
-                            <th className="px-5 py-3">Rule / Check</th>
-                            <th className="px-5 py-3">Drift Type</th>
-                            <th className="px-5 py-3">Resolution</th>
-                            <th className="px-5 py-3">Resolved Date</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-outline-variant/30 text-on-surface font-sans">
-                          {resolvedFindings.map((f) => (
-                            <tr key={f.id} className="hover:bg-surface-container-high/10">
-                              <td className="px-5 py-3.5 font-semibold text-on-surface">{f.check_name}</td>
-                              <td className="px-5 py-3.5 text-on-surface-variant font-sans text-sm">
-                                {f.drift_type ? getDriftLabel(f.drift_type) : "Initial"}
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <span className={`inline-flex px-2.5 py-0.5 rounded-md text-xs font-medium border ${
-                                  f.resolution_reason === "REMEDIATED" ? "bg-status-success/15 text-status-success border-status-success/30" :
-                                  f.resolution_reason === "POLICY_RULE_REMOVED" ? "bg-surface-container-high text-on-surface-variant border-outline-variant" :
-                                  "bg-tertiary/15 text-tertiary border-tertiary/30"
-                                }`}>
-                                  {getResolutionLabel(f.resolution_reason)}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3.5 text-on-surface-variant font-sans text-sm">
-                                {f.resolved_at ? new Date(f.resolved_at).toLocaleString() : ""}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-            </Panel>
-          </div>
-
-          {/* Unified Timeline */}
-          <div className="space-y-4">
-            <SectionHeader title="Unified Posture & Compliance Timeline" icon={Calendar} />
-            <Panel className="p-6 bg-surface-container">
-              {timelineItems.length === 0 ? (
-                <p className="text-sm text-on-surface-variant text-center py-4">No events recorded for this device.</p>
-              ) : (
-                <div className="relative border-l border-outline-variant/60 ml-2 pl-6 space-y-6">
-                  {timelineItems.map((item) => {
-                    const dateStr = new Date(item.timestamp).toLocaleString()
-
-                    if (item.type === "event") {
-                      const isTrigger = (item as any).eventType === "VIOLATION_TRIGGERED"
-                      return (
-                        <div key={item.id} className="relative">
-                          <span className="absolute -left-[30px] top-0.5 bg-surface rounded-full p-0.5 border border-outline-variant/60">
-                            {isTrigger ? (
-                              <XCircle className="h-4 w-4 text-error flex-shrink-0" />
-                            ) : (
-                              <CheckCircle2 className="h-4 w-4 text-status-success flex-shrink-0" />
-                            )}
-                          </span>
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold text-on-surface leading-none">
-                              {isTrigger ? "Violation Triggered" : "Violation Resolved"}
-                            </p>
-                            <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed">{item.message}</p>
-                            <p className="text-xs text-on-surface-variant/70 font-sans mt-1 leading-none">{dateStr}</p>
-                          </div>
-                        </div>
-                      )
-                    } else {
-                      // check_run
-                      const score = (item as any).score
-                      const pName = (item as any).policyName
-                      const vNum = (item as any).versionNumber
-                      const scoreColor = score >= 90 ? "text-status-success" : score >= 70 ? "text-warning" : "text-error"
-
-                      return (
-                        <div key={item.id} className="relative">
-                          <span className="absolute -left-[30px] top-0.5 bg-surface rounded-full p-0.5 border border-outline-variant/60">
-                            <Activity className="h-4 w-4 text-on-surface-variant/60 flex-shrink-0" />
-                          </span>
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold text-on-surface leading-none">
-                              Posture Evaluated · Score <span className={`font-mono font-bold ${scoreColor}`}>{score}/100</span>
-                            </p>
-                            <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
-                              Evaluated policy {pName ? `"${pName}" (v${vNum || "?"})` : "definition"}
-                            </p>
-                            <p className="text-xs text-on-surface-variant/70 font-sans mt-1 leading-none">{dateStr}</p>
-                          </div>
-                        </div>
-                      )
-                    }
-                  })}
-                </div>
-              )}
-            </Panel>
-          </div>
-
+            ) : (
+              <table>
+                <tbody>
+                  {openFindings.map((finding) => (
+                    <tr key={finding.id}>
+                      <td data-label="Finding" style={{ width: "38%" }}>
+                        <div className="cell-primary">{finding.check_name}</div>
+                        <div className="cell-sub mono">{finding.rule_id}</div>
+                      </td>
+                      <td data-label="Severity">
+                        <span className={`sev ${finding.severity.toUpperCase() === 'HIGH' ? 'sev-high' : finding.severity.toUpperCase() === 'MEDIUM' ? 'sev-medium' : 'sev-low'}`}>
+                          {finding.severity}
+                        </span>
+                      </td>
+                      <td data-label="Classification">
+                        <span className={`class-pill ${finding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "policy" : "drift"}`}>
+                          {finding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "Policy change" : "Device drift"}
+                        </span>
+                      </td>
+                      <td data-label="Detected" className="muted">
+                        {getRelativeTime(finding.first_detected_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          ) : (
+            resolvedFindings.length === 0 ? (
+              <div className="empty">
+                <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+                <div className="empty-title">Nothing resolved yet</div>
+              </div>
+            ) : (
+              <table>
+                <tbody>
+                  {resolvedFindings.map((finding) => (
+                    <tr key={finding.id}>
+                      <td data-label="Finding" style={{ width: "38%" }}>
+                        <div className="cell-primary">{finding.check_name}</div>
+                        <div className="cell-sub mono">{finding.rule_id}</div>
+                      </td>
+                      <td data-label="Severity">
+                        <span className={`sev ${finding.severity.toUpperCase() === 'HIGH' ? 'sev-high' : finding.severity.toUpperCase() === 'MEDIUM' ? 'sev-medium' : 'sev-low'}`}>
+                          {finding.severity}
+                        </span>
+                      </td>
+                      <td data-label="Resolution">
+                        <span className="badge badge-neutral">{finding.resolution_reason || "REMEDIATED"}</span>
+                      </td>
+                      <td data-label="Resolved" className="muted">
+                        {getRelativeTime(finding.resolved_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          )}
         </div>
+      </div>
 
+      {/* Security Timeline */}
+      <div className="section">
+        <div className="section-head"><div className="section-title">Security timeline</div></div>
+        <div className="panel">
+          {timelineItems.length === 0 ? (
+            <div className="empty">
+              <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+              <div className="empty-title">No activity yet</div>
+            </div>
+          ) : (
+            <div className="timeline">
+              {timelineItems.map((item) => {
+                const isTrigger = item.type === "VIOLATION_TRIGGERED"
+                return (
+                  <div key={item.id} className="tl-item">
+                    <div className={`tl-dot ${isTrigger ? "trigger" : "resolve"}`}></div>
+                    <div className="tl-title">
+                      {isTrigger ? "Violation triggered" : "Violation resolved"}
+                    </div>
+                    <div className="tl-detail">{item.message}</div>
+                    <div className="tl-meta">
+                      Rule <span className="mono">{item.ruleName}</span> · {getRelativeTime(item.timestamp)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Technical Evidence */}
+      <div className="section" style={{ marginBottom: 0 }}>
+        <div className="section-head"><div className="section-title">Technical evidence</div></div>
+        <div className="evidence">
+          <div><span className="k">content_hash</span>&nbsp;&nbsp;{latestRun?.content_hash || "—"}</div>
+          <div><span className="k">agent_version</span>&nbsp;&nbsp;{device.agent_version}</div>
+          <div><span className="k">last_check_run</span>&nbsp;&nbsp;{latestRun?.timestamp ? getRelativeTime(latestRun.timestamp) : "—"}</div>
+          <div><span className="k">policy_provenance</span>&nbsp;&nbsp;{latestRun?.provenance_status || "—"}</div>
+        </div>
       </div>
     </div>
   )
