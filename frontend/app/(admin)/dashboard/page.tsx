@@ -55,6 +55,7 @@ export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([])
   const [policy, setPolicy] = useState<any>(null)
   const [events, setEvents] = useState<EventLog[]>([])
+  const [openFindings, setOpenFindings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -99,6 +100,13 @@ export default function Dashboard() {
           setEvents(eventsData.items || [])
         }
 
+        // Fetch open findings for mapping issues on dashboard attention list
+        const openFindingsRes = await fetch(`${apiUrl}/api/v1/findings?status=OPEN&limit=100`, { headers })
+        if (openFindingsRes.ok) {
+          const openFindingsData = await openFindingsRes.json()
+          setOpenFindings(openFindingsData.items || [])
+        }
+
         setError(null)
       } catch (err: any) {
         setError(err.message || "An error occurred while connecting to the backend.")
@@ -135,6 +143,19 @@ export default function Dashboard() {
     (d) => d.compliance_status !== "PASS" || d.status !== "ONLINE"
   )
   const attentionCount = attentionDevices.length
+
+  // Determine top active issue for each workstation in the attention list
+  const getDeviceTopIssue = (deviceId: string) => {
+    const devFindings = openFindings.filter((f) => f.device_id === deviceId)
+    if (devFindings.length === 0) return null
+    const severityWeight = (sev: string) => {
+      const s = sev.toUpperCase()
+      if (s === "HIGH" || s === "CRITICAL") return 3
+      if (s === "MEDIUM") return 2
+      return 1
+    }
+    return [...devFindings].sort((a, b) => severityWeight(b.severity) - severityWeight(a.severity))[0]
+  }
 
   // Policy references
   const hasActivePolicy = policy && policy.active_version_id
@@ -233,8 +254,9 @@ export default function Dashboard() {
         ) : (
           <div className="att-list">
             {attentionDevices.map((device) => {
-              // Drift type or classification logic
+              const topIssue = getDeviceTopIssue(device.id)
               const isOutdatedPolicy = device.compliance_status === "WARN" && device.status === "ONLINE"
+
               return (
                 <Link
                   key={device.id}
@@ -247,28 +269,37 @@ export default function Dashboard() {
                   </div>
                   <div className="att-issue">
                     {device.status !== "ONLINE" ? (
-                      <>
-                        <span className="text-danger font-semibold">Offline</span>
-                        <span className="class-pill drift ml-2">
-                          <Laptop className="w-3 h-3 stroke-currentColor inline mr-1" />
-                          Device status
-                        </span>
-                      </>
+                      <span className="text-danger font-semibold">Offline</span>
+                    ) : topIssue ? (
+                      <span className="text-text-secondary">{topIssue.check_name}</span>
                     ) : (
-                      <>
-                        <span className="text-text-secondary">Compliance issue</span>
-                        {isOutdatedPolicy ? (
-                          <span className="class-pill policy ml-2">
-                            <FileText className="w-3 h-3 stroke-currentColor inline mr-1" />
-                            Policy change
-                          </span>
-                        ) : (
-                          <span className="class-pill drift ml-2">
-                            <Shield className="w-3 h-3 stroke-currentColor inline mr-1" />
-                            Device drift
-                          </span>
-                        )}
-                      </>
+                      <span className="text-text-muted">—</span>
+                    )}
+
+                    {topIssue && device.status === "ONLINE" && (
+                      <span className={`sev ${
+                        topIssue.severity.toUpperCase() === "HIGH" ? "sev-high" :
+                        topIssue.severity.toUpperCase() === "MEDIUM" ? "sev-medium" : "sev-low"
+                      } ml-2`}>
+                        {topIssue.severity}
+                      </span>
+                    )}
+
+                    {device.status !== "ONLINE" ? (
+                      <span className="class-pill drift ml-2">
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 inline mr-1"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        Device status
+                      </span>
+                    ) : topIssue?.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" || isOutdatedPolicy ? (
+                      <span className="class-pill policy ml-2">
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 inline mr-1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Policy change
+                      </span>
+                    ) : (
+                      <span className="class-pill drift ml-2">
+                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 inline mr-1"><path d="M17 2 21 6 17 10"/><path d="M3 12v-1a4 4 0 0 1 4-4h14"/><path d="M7 22 3 18 7 14"/><path d="M21 12v1a4 4 0 0 1-4 4H3"/></svg>
+                        Device drift
+                      </span>
                     )}
                   </div>
                   <div className="att-score">{device.compliance_score}/100</div>
