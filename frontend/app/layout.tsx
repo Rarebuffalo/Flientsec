@@ -19,7 +19,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-[#F8FAF8] text-slate-800 antialiased">
+      <body className="min-h-screen antialiased">
         {children}
       </body>
     </html>
