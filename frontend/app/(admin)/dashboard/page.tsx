@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { ShieldCheck, Laptop, RefreshCw, Download, AlertTriangle, ShieldAlert } from "lucide-react"
-import { 
-  PageHeader, StatCard, SectionHeader, LoadingState, EmptyState, Panel, StatusBadge 
+import {
+  PageHeader, LoadingState, EmptyState, Panel, StatusBadge, ConnectionBadge
 } from "../../../components/ui"
 
 interface Device {
@@ -19,9 +19,42 @@ interface Device {
   last_checkin: string | null
 }
 
+interface EventLog {
+  id: string
+  type: "VIOLATION_TRIGGERED" | "VIOLATION_RESOLVED"
+  timestamp: string
+  message: string
+  rule_name: string
+  device_id: string
+  device_hostname: string
+  finding_id: string | null
+  policy_version_id: string | null
+  policy_name: string | null
+  policy_version_number: number | null
+}
+
+// Relative time formatter helper
+function getRelativeTime(dateString: string | null): string {
+  if (!dateString) return "Never"
+  const now = new Date()
+  const date = new Date(dateString)
+  const diffMs = now.getTime() - date.getTime()
+  if (diffMs < 0) return "Just now"
+  const diffSec = Math.floor(diffMs / 1000)
+  if (diffSec < 60) return "Just now"
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDays = Math.floor(diffHr / 24)
+  if (diffDays === 1) return "Yesterday"
+  return `${diffDays}d ago`
+}
+
 export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([])
   const [policy, setPolicy] = useState<any>(null)
+  const [events, setEvents] = useState<EventLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -59,6 +92,13 @@ export default function Dashboard() {
           setPolicy(policyData)
         }
 
+        // Fetch events for recent activity feed
+        const eventsRes = await fetch(`${apiUrl}/api/v1/events?limit=4`, { headers })
+        if (eventsRes.ok) {
+          const eventsData = await eventsRes.json()
+          setEvents(eventsData.items || [])
+        }
+
         setError(null)
       } catch (err: any) {
         setError(err.message || "An error occurred while connecting to the backend.")
@@ -76,21 +116,21 @@ export default function Dashboard() {
     window.open(`${apiUrl}/api/v1/reports/export?token=${token}`, "_blank")
   }
 
-  // 1. Authoritative Frontend Calculations
+  // Authoritative Calculations
   const totalCount = devices.length
   const compliantCount = devices.filter((d) => d.compliance_status === "PASS").length
   const warningCount = devices.filter((d) => d.compliance_status === "WARN").length
   const failedCount = devices.filter((d) => d.compliance_status === "FAIL").length
-  
+
   // Posture Percentage Score (arithmetic average of device compliance scores)
   const devicesWithScore = devices.filter(
     (d) => d.compliance_score !== undefined && d.compliance_score !== null
   )
-  const fleetPostureScore = devicesWithScore.length > 0 
+  const fleetPostureScore = devicesWithScore.length > 0
     ? Math.round(devicesWithScore.reduce((acc, d) => acc + d.compliance_score, 0) / devicesWithScore.length)
     : 100
 
-  // Devices requiring action
+  // Devices requiring action (Needs Attention: compliance_status !== "PASS" || status !== "ONLINE")
   const attentionDevices = devices.filter(
     (d) => d.compliance_status !== "PASS" || d.status !== "ONLINE"
   )
@@ -99,7 +139,7 @@ export default function Dashboard() {
   // Policy references
   const hasActivePolicy = policy && policy.active_version_id
   const activePolicyName = policy ? policy.name : "None Assigned"
-  const activePolicyVer = hasActivePolicy ? `Active v${policy.active_version_number}` : "No active baseline"
+  const activePolicyVer = hasActivePolicy ? `v${policy.active_version_number}` : "No active baseline"
 
   if (loading) {
     return <LoadingState message="Retrieving fleet security posture..." />
@@ -108,21 +148,23 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="space-y-6 font-sans">
-        <PageHeader 
-          title="Dashboard" 
-          subtitle="Continuous security posture across your engineering workstations." 
+        <PageHeader
+          title="Dashboard"
+          subtitle="Current security posture of your engineering fleet."
         />
-        <div className="p-4 rounded-xl border border-error/30 bg-error/5 text-sm text-error flex items-center space-x-2 font-sans">
-          <ShieldAlert className="h-4 w-4 flex-shrink-0 text-error" />
-          <span>{error} (Ensure backend service is accessible at {apiUrl})</span>
+        <div className="panel p-5 space-y-4 border border-danger/30 bg-danger/5">
+          <div className="flex items-center space-x-2 text-danger">
+            <ShieldAlert className="h-5 w-5" />
+            <span className="font-semibold">{error}</span>
+          </div>
+          <button
+            onClick={() => setRefreshKey((prev) => prev + 1)}
+            className="btn"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Retry Connection</span>
+          </button>
         </div>
-        <button 
-          onClick={() => setRefreshKey((prev) => prev + 1)}
-          className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface transition-colors"
-        >
-          <RefreshCw className="h-3 w-3" />
-          <span>Retry Connection</span>
-        </button>
       </div>
     )
   }
@@ -130,198 +172,221 @@ export default function Dashboard() {
   return (
     <div className="space-y-8 flex-1 flex flex-col font-sans">
       {/* Header action bar */}
-      <PageHeader 
-        title="Dashboard" 
-        subtitle="Continuous security posture across your engineering workstations." 
+      <PageHeader
+        title="Dashboard"
+        subtitle="Current security posture of your engineering fleet."
         actions={
           <div className="flex items-center space-x-2">
             <button
               onClick={exportReport}
-              title="Export CSV Report"
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface transition-colors"
+              className="btn btn-sm"
             >
-              <Download className="h-3.5 w-3.5 text-on-surface-variant" />
+              <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
             </button>
             <button
               onClick={() => setRefreshKey((prev) => prev + 1)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-surface-container hover:bg-surface-container-high border border-outline-variant rounded-lg text-xs font-bold text-on-surface transition-colors"
+              className="btn btn-sm"
             >
-              <RefreshCw className="h-3.5 w-3.5 text-on-surface-variant" />
+              <RefreshCw className="h-3.5 w-3.5" />
               <span>Refresh</span>
             </button>
           </div>
         }
       />
 
-      {/* SECTION 1 — FLEET SUMMARY STRIP */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
-          label="Fleet Posture" 
-          value={`${fleetPostureScore}%`} 
-          subtext={fleetPostureScore === 100 ? "Fully Compliant" : "Needs Attention"} 
-          status={fleetPostureScore === 100 ? "PASS" : "WARN"}
-        />
-        <StatCard 
-          label="Enrolled Workstations" 
-          value={totalCount} 
-          subtext={`${devices.filter((d) => d.status === "ONLINE").length} currently online`} 
-        />
-        <StatCard 
-          label="Attention Required" 
-          value={attentionCount} 
-          subtext={`${failedCount} failed · ${warningCount} warnings`} 
-          status={attentionCount > 0 ? "FAIL" : "PASS"}
-        />
-        <StatCard 
-          label="Policy Baseline" 
-          value={activePolicyVer} 
-          subtext={activePolicyName} 
-          status={hasActivePolicy ? "PASS" : "WARN"}
-        />
+      {/* SECTION 1 — POSTURE HERO */}
+      <div className="section">
+        <div className="posture-hero">
+          <div>
+            <div className={`posture-score-big ${fleetPostureScore >= 90 ? '' : fleetPostureScore >= 70 ? 'warn' : 'bad'}`}>
+              {fleetPostureScore}%
+            </div>
+            <div className="posture-caption">
+              {fleetPostureScore >= 90
+                ? "Healthy fleet posture"
+                : fleetPostureScore >= 70
+                ? "Fleet posture needs attention"
+                : "Fleet posture is degraded"}
+            </div>
+          </div>
+          <div className="posture-side">
+            <div className="n">{totalCount} workstations</div>
+            <div className="l">{compliantCount} compliant · {warningCount} warning · {failedCount} failing</div>
+          </div>
+        </div>
       </div>
 
-      {/* Main operational sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        
-        {/* SECTION 2 — ATTENTION REQUIRED (Left 2 columns on desktop) */}
-        <div className="lg:col-span-2 space-y-4">
-          <SectionHeader title="Attention Required" />
-          
-          {attentionCount === 0 ? (
-            <EmptyState 
-              title="No workstations require attention" 
-              description="All enrolled devices successfully comply with the current baseline security policy." 
-              icon={ShieldCheck} 
-            />
-          ) : (
-            <Panel>
-              <div className="divide-y divide-outline-variant/30">
-                {attentionDevices.map((device) => {
-                  const isStale = device.status !== "ONLINE"
-                  const lastActive = device.last_checkin 
-                    ? new Date(device.last_checkin).toLocaleString() 
-                    : "never"
-                  
-                  return (
-                    <div 
-                      key={device.id} 
-                      className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-surface-container-high/20 transition-colors"
-                    >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
-                          <span className="font-bold text-base text-on-surface font-sans">{device.hostname}</span>
-                          <StatusBadge status={device.compliance_status} />
-                          {isStale && (
-                            <span className="inline-flex px-2 py-0.5 rounded-md text-xs font-bold border border-warning/20 bg-warning/10 text-warning font-sans">
-                              STALE/OFFLINE
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-on-surface-variant font-sans flex items-center space-x-2">
-                          <span className="font-mono text-[11px] bg-surface-container-high/40 px-1.5 py-0.5 rounded border border-outline-variant/40 select-all">
-                            {device.id}
-                          </span>
-                          <span>·</span>
-                          <span>Check-in: {lastActive}</span>
-                        </div>
-                      </div>
+      {/* SECTION 2 — ATTENTION REQUIRED */}
+      <div className="section">
+        <div className="section-head">
+          <div className="section-title">Attention required</div>
+          <div className="section-hint">Sorted by compliance score</div>
+        </div>
 
-                      <div className="flex items-center space-x-4 self-end sm:self-auto">
-                        <div className="text-right">
-                          <p className="text-[11px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Score</p>
-                          <p className="text-base font-bold font-mono text-on-surface mt-0.5">{device.compliance_score}/100</p>
-                        </div>
-                        <Link 
-                          href={`/devices/${device.id}`}
-                          className="px-3.5 py-2 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/60 rounded-lg text-sm font-semibold text-on-surface transition-colors"
-                        >
-                          View Device →
-                        </Link>
-                      </div>
-                    </div>
-                  )
-                })}
+        {attentionCount === 0 ? (
+          <div className="empty">
+            <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+            <div className="empty-title">Nothing needs attention</div>
+            <div className="empty-body">Every workstation is currently compliant.</div>
+          </div>
+        ) : (
+          <div className="att-list">
+            {attentionDevices.map((device) => {
+              // Drift type or classification logic
+              const isOutdatedPolicy = device.compliance_status === "WARN" && device.status === "ONLINE"
+              return (
+                <Link
+                  key={device.id}
+                  href={`/devices/${device.id}`}
+                  className="att-row"
+                >
+                  <div>
+                    <div className="att-device">{device.hostname}</div>
+                    <div className="att-uuid mono">{device.id}</div>
+                  </div>
+                  <div className="att-issue">
+                    {device.status !== "ONLINE" ? (
+                      <>
+                        <span className="text-danger font-semibold">Offline</span>
+                        <span className="class-pill drift ml-2">
+                          <Laptop className="w-3 h-3 stroke-currentColor inline mr-1" />
+                          Device status
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-text-secondary">Compliance issue</span>
+                        {isOutdatedPolicy ? (
+                          <span className="class-pill policy ml-2">
+                            <FileText className="w-3 h-3 stroke-currentColor inline mr-1" />
+                            Policy change
+                          </span>
+                        ) : (
+                          <span className="class-pill drift ml-2">
+                            <Shield className="w-3 h-3 stroke-currentColor inline mr-1" />
+                            Device drift
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="att-score">{device.compliance_score}/100</div>
+                  <div className="att-time">{getRelativeTime(device.last_checkin)}</div>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 3 — POSTURE DISTRIBUTION */}
+      <div className="section">
+        <div className="section-head">
+          <div className="section-title">Posture distribution</div>
+        </div>
+        <div className="panel">
+          {totalCount > 0 ? (
+            <>
+              <div className="dist-bar">
+                <div className="dist-seg compliant" style={{ width: `${(compliantCount / totalCount) * 100}%` }}></div>
+                <div className="dist-seg warning" style={{ width: `${(warningCount / totalCount) * 100}%` }}></div>
+                <div className="dist-seg failing" style={{ width: `${(failedCount / totalCount) * 100}%` }}></div>
               </div>
-            </Panel>
+              <div className="dist-legend">
+                <div className="dist-legend-item">
+                  <span className="sw" style={{ background: "var(--success)" }}></span>
+                  Compliant · {compliantCount}
+                </div>
+                <div className="dist-legend-item">
+                  <span className="sw" style={{ background: "var(--warning)" }}></span>
+                  Warning · {warningCount}
+                </div>
+                <div className="dist-legend-item">
+                  <span className="sw" style={{ background: "var(--danger)" }}></span>
+                  Failing · {failedCount}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="dist-bar"></div>
           )}
         </div>
+      </div>
 
-        {/* SECTION 3 & 4 — FLEET STATE & POLICY ALIGNMENT (Right 1 column) */}
-        <div className="space-y-6">
-          {/* Posture Distribution */}
-          <div className="space-y-4">
-            <SectionHeader title="Posture Distribution" />
-            <Panel className="p-5 space-y-4">
-              {/* Simple distribution bar */}
-              {totalCount > 0 ? (
-                <div className="h-2 rounded-full overflow-hidden flex bg-surface-container-low border border-outline-variant/40">
-                  <div 
-                    style={{ width: `${(compliantCount / totalCount) * 100}%` }} 
-                    className="bg-status-success"
-                    title={`Compliant: ${compliantCount}`}
-                  />
-                  <div 
-                    style={{ width: `${(warningCount / totalCount) * 100}%` }} 
-                    className="bg-warning"
-                    title={`Warnings: ${warningCount}`}
-                  />
-                  <div 
-                    style={{ width: `${(failedCount / totalCount) * 100}%` }} 
-                    className="bg-error"
-                    title={`Failed: ${failedCount}`}
-                  />
-                </div>
-              ) : (
-                <div className="h-2 rounded-full bg-surface-container-low border border-outline-variant/40" />
-              )}
-
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="h-2 w-2 rounded-full bg-status-success" />
-                    <span className="text-on-surface-variant">Compliant devices</span>
-                  </div>
-                  <span className="font-mono font-bold text-on-surface">{compliantCount}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="h-2 w-2 rounded-full bg-warning" />
-                    <span className="text-on-surface-variant">Warning devices</span>
-                  </div>
-                  <span className="font-mono font-bold text-on-surface">{warningCount}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="h-2 w-2 rounded-full bg-error" />
-                    <span className="text-on-surface-variant">Failing devices</span>
-                  </div>
-                  <span className="font-mono font-bold text-on-surface">{failedCount}</span>
-                </div>
-              </div>
-            </Panel>
+      {/* SECTION 4 — POLICY BASELINE */}
+      <div className="section">
+        <div className="section-head">
+          <div className="section-title">Policy baseline</div>
+        </div>
+        <div className="panel flex justify-between items-center flex-wrap gap-4">
+          <div>
+            <div className="stat-label" style={{ marginBottom: "6px" }}>Active policy</div>
+            <div style={{ fontSize: "17px", fontWeight: 700 }}>
+              {activePolicyName} <span className="mono muted" style={{ fontSize: "13px", fontWeight: 600 }}>{activePolicyVer}</span>
+            </div>
+            <div className="secondary-text text-xs mt-1.5">
+              Published · applied as default for new devices
+            </div>
           </div>
+          <Link href="/policies" className="btn">
+            View policy
+          </Link>
+        </div>
+      </div>
 
-          {/* Policy Baseline Info */}
-          <div className="space-y-4">
-            <SectionHeader title="Policy Baseline Coverage" />
-            <Panel className="p-5 space-y-3 text-sm">
-              <div>
-                <p className="text-[11px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Assigned Baseline</p>
-                <p className="font-bold text-on-surface mt-1">{activePolicyName}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-on-surface-variant font-bold uppercase tracking-wider font-sans">Active Target Version</p>
-                <p className="font-mono font-bold text-tertiary mt-0.5">{activePolicyVer}</p>
-              </div>
-              <p className="text-xs text-on-surface-variant leading-relaxed pt-2 border-t border-outline-variant/40">
-                Workstations synchronize baselines locally. Evaluation provenance (such as <code>POLICY_UNAVAILABLE</code> or pending update states) are resolved on active agent handshake telemetry.
-              </p>
-            </Panel>
-          </div>
+      {/* SECTION 5 — RECENT ACTIVITY */}
+      <div className="section" style={{ marginBottom: 0 }}>
+        <div className="section-head">
+          <div className="section-title">Recent activity</div>
+          <Link href="/activity" className="section-hint hover:text-text-primary transition-colors">
+            View all
+          </Link>
         </div>
 
+        {events.length === 0 ? (
+          <div className="empty">
+            <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+            <div className="empty-title">No recent activity</div>
+          </div>
+        ) : (
+          <div className="event-list">
+            {events.map((e) => (
+              <div key={e.id} className="event-item">
+                <div className="event-row">
+                  <div className="event-dot-outer">
+                    <div className={`event-dot ${e.type === "VIOLATION_TRIGGERED" ? "trigger" : "resolve"}`} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="event-title">
+                      {e.type === "VIOLATION_TRIGGERED" ? "Violation triggered" : "Violation resolved"}
+                    </div>
+                    <div className="event-msg">{e.device_hostname} · {e.message}</div>
+                    <div className="event-meta">
+                      <span className="mono">{e.rule_name}</span>
+                      <span>{e.policy_name || "Baseline Policy"} · v{e.policy_version_number || 2}</span>
+                      <span>{getRelativeTime(e.timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
+
+// Icon helper placeholders to avoid undefined imports
+const FileText = (props: any) => (
+  <svg {...props} fill="none" strokeWidth="2" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z" />
+    <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+  </svg>
+)
+const Shield = (props: any) => (
+  <svg {...props} fill="none" strokeWidth="2" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+)
