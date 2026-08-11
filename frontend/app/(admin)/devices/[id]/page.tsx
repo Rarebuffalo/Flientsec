@@ -4,10 +4,10 @@ import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft, ShieldAlert, ShieldCheck
+  ArrowLeft, ShieldCheck, X
 } from "lucide-react"
 import {
-  StatusBadge, ConnectionBadge, LoadingState, EmptyState
+  StatusBadge, ConnectionBadge, LoadingState, SeverityBadge
 } from "../../../../components/ui"
 
 interface Device {
@@ -29,11 +29,11 @@ interface Finding {
   policy_id: string | null
   rule_id: string
   check_name: string
-  severity: string
-  status: string
+  severity: "HIGH" | "MEDIUM" | "LOW"
+  status: "OPEN" | "RESOLVED"
   reason: string | null
   resolution_reason: string | null
-  drift_type: string | null
+  drift_type: "DEVICE_DRIFT" | "POLICY_CHANGE_NON_COMPLIANCE" | null
   created_at: string
   first_detected_at: string
   last_detected_at: string
@@ -97,6 +97,10 @@ export default function DeviceDetails() {
   const [error, setError] = useState<string | null>(null)
 
   const [activeTab, setActiveTab] = useState<"active" | "resolved">("active")
+
+  // Finding inspection drawer states
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -178,6 +182,17 @@ export default function DeviceDetails() {
     }
   }, [deviceId, apiUrl])
 
+  // Keyboard Escape listener to dismiss Drawer
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDrawerOpen(false)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
   const handleRevoke = async () => {
     if (!confirm("Are you sure you want to decommission/revoke this device? Once revoked, the agent's token is invalid and no more reports will be accepted.")) {
       return
@@ -231,6 +246,11 @@ export default function DeviceDetails() {
   })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
   const formattedLastSeen = getRelativeTime(device.last_checkin)
+
+  const handleRowClick = (finding: Finding) => {
+    setSelectedFinding(finding)
+    setDrawerOpen(true)
+  }
 
   return (
     <div className="space-y-8 flex-1 flex flex-col font-sans">
@@ -352,14 +372,14 @@ export default function DeviceDetails() {
             <div className="align-value">{effectivePolicy ? `${effectivePolicy.name} v${effectivePolicy.active_version_number || "Draft"}` : "None Assigned"}</div>
           </div>
           <div className="align-arrow">
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </div>
           <div className="align-cell">
             <div className="align-label">Last evaluated</div>
             <div className="align-value">{latestRun?.policy_name || "Baseline"} v{latestRun?.version_number || "?"}</div>
           </div>
           <div className="align-arrow">
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </div>
           <div className="align-cell">
             <div className="align-label">Status</div>
@@ -399,7 +419,11 @@ export default function DeviceDetails() {
               <table>
                 <tbody>
                   {openFindings.map((finding) => (
-                    <tr key={finding.id}>
+                    <tr
+                      key={finding.id}
+                      onClick={() => handleRowClick(finding)}
+                      className="clickable"
+                    >
                       <td data-label="Finding" style={{ width: "38%" }}>
                         <div className="cell-primary">{finding.check_name}</div>
                         <div className="cell-sub mono">{finding.rule_id}</div>
@@ -432,7 +456,11 @@ export default function DeviceDetails() {
               <table>
                 <tbody>
                   {resolvedFindings.map((finding) => (
-                    <tr key={finding.id}>
+                    <tr
+                      key={finding.id}
+                      onClick={() => handleRowClick(finding)}
+                      className="clickable"
+                    >
                       <td data-label="Finding" style={{ width: "38%" }}>
                         <div className="cell-primary">{finding.check_name}</div>
                         <div className="cell-sub mono">{finding.rule_id}</div>
@@ -496,6 +524,87 @@ export default function DeviceDetails() {
           <div><span className="k">agent_version</span>&nbsp;&nbsp;{device.agent_version}</div>
           <div><span className="k">last_check_run</span>&nbsp;&nbsp;{latestRun?.timestamp ? getRelativeTime(latestRun.timestamp) : "—"}</div>
           <div><span className="k">policy_provenance</span>&nbsp;&nbsp;{latestRun?.provenance_status || "—"}</div>
+        </div>
+      </div>
+
+      {/* Drawer Overlay Backdrop */}
+      <div
+        className={`drawer-scrim ${drawerOpen ? "open" : ""}`}
+        onClick={() => setDrawerOpen(false)}
+      />
+
+      {/* Drawer Container Panel */}
+      <div className={`drawer ${drawerOpen ? "open" : ""}`}>
+        <div className="drawer-head">
+          <div>
+            <div style={{ fontSize: "16.5px", fontWeight: 700 }} id="drTitle">
+              {selectedFinding?.check_name || "—"}
+            </div>
+            <div style={{ marginTop: "8px" }} id="drBadges">
+              {selectedFinding && (
+                <>
+                  <SeverityBadge severity={selectedFinding.severity} />
+                  <span className={`class-pill ${selectedFinding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "policy" : "drift"} ml-2`}>
+                    {selectedFinding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "Policy change" : "Device drift"}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setDrawerOpen(false)} aria-label="Close details">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="drawer-body">
+          {selectedFinding && (
+            <>
+              <div className="kv">
+                <div className="k">Workstation</div>
+                <div className="v">{device.hostname}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Rule</div>
+                <div className="v mono">{selectedFinding.rule_id}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Classification</div>
+                <div className="v mono">{selectedFinding.drift_type || "DEVICE_DRIFT"}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Status</div>
+                <div className="v">{selectedFinding.status === "OPEN" ? "Open" : "Resolved"}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Reason</div>
+                <div className="v" style={{ textAlign: "right", maxWidth: "220px" }}>
+                  {selectedFinding.reason || "No extra failure details available."}
+                </div>
+              </div>
+              <div className="kv">
+                <div className="k">First detected</div>
+                <div className="v">{getRelativeTime(selectedFinding.first_detected_at)}</div>
+              </div>
+              {selectedFinding.last_detected_at && (
+                <div className="kv">
+                  <div className="k">Last detected</div>
+                  <div className="v">{getRelativeTime(selectedFinding.last_detected_at)}</div>
+                </div>
+              )}
+              {selectedFinding.status === "RESOLVED" && (
+                <>
+                  <div className="kv">
+                    <div className="k">Resolved</div>
+                    <div className="v">{getRelativeTime(selectedFinding.resolved_at)}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Resolution reason</div>
+                    <div className="v mono">{selectedFinding.resolution_reason || "REMEDIATED"}</div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
