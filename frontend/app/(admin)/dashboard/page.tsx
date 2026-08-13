@@ -141,7 +141,7 @@ export default function Dashboard() {
   // Devices requiring action (Needs Attention: compliance_status !== "PASS" || status !== "ONLINE")
   const attentionDevices = devices.filter(
     (d) => d.compliance_status !== "PASS" || d.status !== "ONLINE"
-  )
+  ).sort((a, b) => a.compliance_score - b.compliance_score)
   const attentionCount = attentionDevices.length
 
   // Determine top active issue for each workstation in the attention list
@@ -242,7 +242,7 @@ export default function Dashboard() {
       <div className="section">
         <div className="section-head">
           <div className="section-title">Attention required</div>
-          <div className="section-hint">Sorted by compliance score</div>
+          <div className="section-hint">Sorted by severity</div>
         </div>
 
         {attentionCount === 0 ? (
