@@ -157,7 +157,7 @@ export function PageHeader({
   actions?: React.ReactNode
 }) {
   return (
-    <div className="page-head flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-border-soft">
+    <div className="page-head flex flex-col md:flex-row md:items-center justify-between gap-4">
       <div>
         <h1 className="page-title">{title}</h1>
         {subtitle && <p className="page-sub">{subtitle}</p>}
