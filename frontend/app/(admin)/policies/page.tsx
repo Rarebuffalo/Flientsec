@@ -13,6 +13,7 @@ interface PolicyVersion {
   content: string
   content_hash: string
   created_at: string
+  definition_json?: string
 }
 
 export default function PolicyManager() {
@@ -23,6 +24,7 @@ export default function PolicyManager() {
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState<string | null>(null)
   const [activating, setActivating] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -68,6 +70,13 @@ export default function PolicyManager() {
     fetchPolicy()
   }, [apiUrl])
 
+  const inspectVersion = (content: string) => {
+    setYamlContent(content)
+    setIsEditing(true)
+    setSuccess(false)
+    setError(null)
+  }
+
   const savePolicy = async () => {
     try {
       setSaving(true)
@@ -94,6 +103,7 @@ export default function PolicyManager() {
       }
 
       setSuccess(true)
+      setIsEditing(false)
       fetchPolicy()
     } catch (err: any) {
       setError(err.message || "An error occurred while saving the policy.")
@@ -174,6 +184,45 @@ export default function PolicyManager() {
     { name: "Docker installed", key: "docker.installed", sev: "LOW", required: false }
   ]
 
+  // Dynamic rules list matching active version's definition
+  const getRulesFromDefinition = (definitionJson: string) => {
+    try {
+      const data = JSON.parse(definitionJson)
+      if (data && data.checks) {
+        return Object.entries(data.checks).map(([key, value]: [string, any]) => {
+          let name = key.charAt(0).toUpperCase() + key.slice(1)
+          if (key === "firewall") name = "Firewall enabled"
+          if (key === "encryption") name = "Disk encryption"
+          if (key === "ssh") name = "SSH root login disabled"
+          if (key === "updates") name = "System updates current"
+          if (key === "runtime") name = "Runtime security status"
+
+          // Determine key description: e.g. firewall.enabled
+          let checkKey = `${key}.enabled`
+          if (typeof value === "object") {
+            const innerKeys = Object.keys(value).filter(k => k !== "severity" && k !== "required")
+            if (innerKeys.length > 0) {
+              checkKey = `${key}.${innerKeys[0]}`
+            }
+          }
+
+          return {
+            name,
+            key: checkKey,
+            sev: value.severity || "LOW",
+            required: value.required !== false
+          }
+        })
+      }
+    } catch (e) {
+      // Fallback
+    }
+    return null
+  }
+
+  const parsedRules = activeVersion?.definition_json ? getRulesFromDefinition(activeVersion.definition_json) : null
+  const rulesToDisplay = parsedRules || staticRules
+
   // Render raw YAML code line by line with numbers
   const yamlLines = yamlContent.split("\n")
 
@@ -229,10 +278,10 @@ export default function PolicyManager() {
       <div className="section">
         <div className="section-head">
           <div className="section-title">Rules — v{activeVersionNumber}</div>
-          <div className="section-hint">{staticRules.length} rules</div>
+          <div className="section-hint">{rulesToDisplay.length} rules</div>
         </div>
         <div className="rule-list">
-          {staticRules.map((r, idx) => (
+          {rulesToDisplay.map((r, idx) => (
             <div className="rule-row" key={idx}>
               <div>
                 <div className="rule-name">{r.name}</div>
@@ -252,29 +301,72 @@ export default function PolicyManager() {
       <div className="section">
         <div className="section-head">
           <div className="section-title">Policy source</div>
-          <div className="section-hint">Read-only · YAML draft</div>
-        </div>
-        <div className="code-block" style={{ padding: "16px 0" }}>
-          {yamlLines.map((line, idx) => {
-            // Very basic syntax styling
-            let formattedLine = line
-            if (line.includes("#")) {
-              formattedLine = `<span class="cm">${line}</span>`
-            } else if (line.includes(":")) {
-              const parts = line.split(":")
-              const key = parts[0]
-              const val = parts.slice(1).join(":")
-              formattedLine = `<span class="kk">${key}</span>:<span class="vv">${val}</span>`
-            }
-
-            return (
-              <div className="code-line" key={idx}>
-                <span className="num">{idx + 1}</span>
-                <span className="txt" dangerouslySetInnerHTML={{ __html: formattedLine }}></span>
+          <div className="flex items-center space-x-2">
+            <span className="section-hint">
+              {isEditing ? "Editing · YAML draft" : "Read-only · YAML draft"}
+            </span>
+            {!isEditing ? (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="btn btn-sm"
+              >
+                Modify Policy
+              </button>
+            ) : (
+              <div className="flex space-x-2">
+                <button
+                  onClick={savePolicy}
+                  disabled={saving}
+                  className="btn btn-primary btn-sm flex items-center space-x-1"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  <span>{saving ? "Saving..." : "Save Draft"}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsEditing(false);
+                    setYamlContent(policy?.rules_yaml || "");
+                    setError(null);
+                  }}
+                  className="btn btn-ghost btn-sm"
+                >
+                  Cancel
+                </button>
               </div>
-            )
-          })}
+            )}
+          </div>
         </div>
+        
+        {isEditing ? (
+          <textarea
+            value={yamlContent}
+            onChange={(e) => setYamlContent(e.target.value)}
+            className="w-full h-96 p-4 font-mono text-sm bg-surface-1 border border-border rounded-xl focus:outline-none focus:ring-1 focus:ring-brand resize-none"
+            placeholder="# Enter policy YAML configuration rules here"
+          />
+        ) : (
+          <div className="code-block" style={{ padding: "16px 0" }}>
+            {yamlLines.map((line, idx) => {
+              // Very basic syntax styling
+              let formattedLine = line
+              if (line.includes("#")) {
+                formattedLine = `<span class="cm">${line}</span>`
+              } else if (line.includes(":")) {
+                const parts = line.split(":")
+                const key = parts[0]
+                const val = parts.slice(1).join(":")
+                formattedLine = `<span class="kk">${key}</span>:<span class="vv">${val}</span>`
+              }
+
+              return (
+                <div className="code-line" key={idx}>
+                  <span className="num">{idx + 1}</span>
+                  <span className="txt" dangerouslySetInnerHTML={{ __html: formattedLine }}></span>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* VERSIONS */}
@@ -302,8 +394,34 @@ export default function PolicyManager() {
                     <td data-label="Note" className="secondary-text">
                       {v.status === "DRAFT" ? "Draft configuration" : `Baseline release v${v.version_number}`}
                     </td>
-                    <td data-label="Published" className="muted" style={{ textAlign: "right" }}>
+                    <td data-label="Published" className="muted" style={{ width: "15%" }}>
                       {new Date(v.created_at).toLocaleDateString()}
+                    </td>
+                    <td data-label="Actions" style={{ textAlign: "right" }} className="space-x-2">
+                      <button
+                        onClick={() => inspectVersion(v.content || "")}
+                        className="btn btn-ghost btn-sm"
+                      >
+                        Inspect
+                      </button>
+                      {v.status === "DRAFT" && (
+                        <button
+                          onClick={() => publishVersion(v.id)}
+                          disabled={publishing === v.id}
+                          className="btn btn-ghost btn-sm text-brand"
+                        >
+                          {publishing === v.id ? "Publishing..." : "Publish"}
+                        </button>
+                      )}
+                      {v.status === "PUBLISHED" && !isActive && (
+                        <button
+                          onClick={() => activateVersion(v.id)}
+                          disabled={activating === v.id}
+                          className="btn btn-ghost btn-sm text-brand"
+                        >
+                          {activating === v.id ? "Activating..." : "Activate"}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )
