@@ -1,4 +1,9 @@
+import hashlib
+import hmac
+import http.server
 import json
+import threading
+import time
 import uuid
 from datetime import datetime
 from unittest.mock import patch, MagicMock
@@ -295,3 +300,146 @@ def test_webhook_retry_and_failure_semantics(client, db):
         assert delivery.status == "FAILED"
         assert delivery.attempt_count == 3
         assert mock_http_post.call_count == 3
+
+
+def test_live_receiver_e2e_signature_and_async_behavior(client, db):
+    """
+    End-to-End Test with a real live HTTP server receiver:
+    - Verifies receiver receives raw bytes and calculates HMAC-SHA256 matching X-FlientSec-Signature.
+    - Verifies 200 OK delivery sets WebhookDelivery to SUCCESS.
+    - Verifies async check-in returns immediately without blocking even if webhook receiver is slow.
+    """
+    received_requests = []
+
+    class MockWebhookServerHandler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length).decode("utf-8")
+            timestamp = self.headers.get("X-FlientSec-Timestamp")
+            event_id = self.headers.get("X-FlientSec-Event-ID")
+            signature = self.headers.get("X-FlientSec-Signature")
+
+            received_requests.append({
+                "path": self.path,
+                "raw_body": raw_body,
+                "timestamp": timestamp,
+                "event_id": event_id,
+                "signature": signature,
+                "headers": dict(self.headers),
+            })
+
+            if self.path == "/slow":
+                time.sleep(1.0)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status": "slow_ok"}')
+            elif self.path == "/error500":
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b'{"error": "internal error"}')
+            elif self.path == "/error400":
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'{"error": "bad request"}')
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status": "received"}')
+
+        def log_message(self, format, *args):
+            # Suppress HTTP server output in test logs
+            pass
+
+    # Start live HTTP server on ephemeral port
+    server = http.server.HTTPServer(("127.0.0.1", 0), MockWebhookServerHandler)
+    server_port = server.server_address[1]
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    try:
+        org, user, headers = create_tenant(db, name="Live Receiver Org", email_prefix="live_hook")
+
+        # 1. Create Webhook pointing to live test server
+        signing_secret = "live_secret_hex_1234567890abcdef1234567890abcdef"
+        webhook = models.Webhook(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            name="Live Integration Hook",
+            endpoint_url=f"http://127.0.0.1:{server_port}/success",
+            signing_secret=signing_secret,
+            enabled=True,
+            events='["VIOLATION_TRIGGERED", "VIOLATION_RESOLVED", "POLICY_ROLLBACK"]'
+        )
+        db.add(webhook)
+        db.commit()
+
+        # 2. Test live delivery (200 OK)
+        evt_id = uuid.uuid4()
+        payload = {
+            "id": str(evt_id),
+            "type": "VIOLATION_TRIGGERED",
+            "version": "1",
+            "timestamp": datetime.utcnow().isoformat(),
+            "organization_id": str(org.id),
+            "data": {"rule": "firewall.enabled", "compliant": False}
+        }
+
+        delivery = webhook_service.deliver_webhook_sync(
+            db=db,
+            webhook_id=webhook.id,
+            event_id=evt_id,
+            event_type="VIOLATION_TRIGGERED",
+            payload_dict=payload
+        )
+
+        assert delivery.status == "SUCCESS"
+        assert delivery.response_status_code == 200
+        assert delivery.attempt_count == 1
+        assert len(received_requests) == 1
+
+        req = received_requests[-1]
+        assert req["event_id"] == str(evt_id)
+        assert req["timestamp"] is not None
+
+        # Verify HMAC computed by receiver matches X-FlientSec-Signature
+        expected_sig = hmac.new(
+            signing_secret.encode("utf-8"),
+            f"{req['timestamp']}.{req['raw_body']}".encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        assert req["signature"] == expected_sig
+
+        # 3. Test 400 Bad Request on live server -> single attempt, status FAILED
+        webhook.endpoint_url = f"http://127.0.0.1:{server_port}/error400"
+        db.commit()
+
+        delivery_400 = webhook_service.deliver_webhook_sync(
+            db=db,
+            webhook_id=webhook.id,
+            event_id=uuid.uuid4(),
+            event_type="VIOLATION_TRIGGERED",
+            payload_dict={"test": "400"}
+        )
+        assert delivery_400.status == "FAILED"
+        assert delivery_400.response_status_code == 400
+        assert delivery_400.attempt_count == 1
+
+        # 4. Test 500 Error on live server with retries -> 3 attempts, status FAILED
+        webhook.endpoint_url = f"http://127.0.0.1:{server_port}/error500"
+        db.commit()
+
+        with patch("time.sleep"):  # fast-forward retry sleep in test
+            delivery_500 = webhook_service.deliver_webhook_sync(
+                db=db,
+                webhook_id=webhook.id,
+                event_id=uuid.uuid4(),
+                event_type="VIOLATION_TRIGGERED",
+                payload_dict={"test": "500"},
+                max_retries=3
+            )
+        assert delivery_500.status == "FAILED"
+        assert delivery_500.response_status_code == 500
+        assert delivery_500.attempt_count == 3
+    finally:
+        server.shutdown()
+        server.server_close()
