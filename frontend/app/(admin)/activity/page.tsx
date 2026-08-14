@@ -7,7 +7,7 @@ import {
   PageHeader, LoadingState, EmptyState
 } from "../../../components/ui"
 
-type EventType = "VIOLATION_TRIGGERED" | "VIOLATION_RESOLVED"
+type EventType = "VIOLATION_TRIGGERED" | "VIOLATION_RESOLVED" | "POLICY_ROLLBACK"
 
 interface FleetEvent {
   id: string
@@ -15,8 +15,8 @@ interface FleetEvent {
   timestamp: string
   message: string
   rule_name: string
-  device_id: string
-  device_hostname: string
+  device_id: string | null
+  device_hostname: string | null
   finding_id: string | null
   policy_version_id: string | null
   policy_name: string | null
@@ -155,11 +155,10 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-8 flex-1 flex flex-col font-sans">
-
       {/* Page Header */}
       <PageHeader
         title="Activity"
-        subtitle="Fleet security audit timeline."
+        subtitle="Fleet security audit and control plane timeline."
         actions={
           <button
             onClick={fetchEvents}
@@ -183,6 +182,7 @@ export default function ActivityPage() {
           <option value="ALL">All event types</option>
           <option value="VIOLATION_TRIGGERED">Violation triggered</option>
           <option value="VIOLATION_RESOLVED">Violation resolved</option>
+          <option value="POLICY_ROLLBACK">Policy rollback</option>
         </select>
 
         <select
@@ -227,26 +227,39 @@ export default function ActivityPage() {
       ) : (
         <div className="space-y-6">
           <div className="event-list">
-            {events.map((e) => (
-              <div key={e.id} className="event-item">
-                <div className="event-row">
-                  <div className="event-dot-outer">
-                    <div className={`event-dot ${e.type === "VIOLATION_TRIGGERED" ? "trigger" : "resolve"}`} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="event-title">
-                      {e.type === "VIOLATION_TRIGGERED" ? "Violation triggered" : "Violation resolved"}
+            {events.map((e) => {
+              const isRollback = e.type === "POLICY_ROLLBACK"
+              const isTrigger = e.type === "VIOLATION_TRIGGERED"
+              return (
+                <div key={e.id} className="event-item">
+                  <div className="event-row">
+                    <div className="event-dot-outer">
+                      <div
+                        className={`event-dot ${isTrigger ? "trigger" : isRollback ? "bg-amber-400" : "resolve"}`}
+                        style={isRollback ? { backgroundColor: "#F59E0B" } : undefined}
+                      />
                     </div>
-                    <div className="event-msg">{e.device_hostname} · {e.message}</div>
-                    <div className="event-meta">
-                      <span className="mono">{e.rule_name}</span>
-                      <span>{e.policy_name || "Baseline Policy"} · v{e.policy_version_number || 2}</span>
-                      <span>{getRelativeTime(e.timestamp)}</span>
+                    <div style={{ flex: 1 }}>
+                      <div className="event-title">
+                        {isRollback
+                          ? "Policy standard rolled back"
+                          : isTrigger
+                          ? "Violation triggered"
+                          : "Violation resolved"}
+                      </div>
+                      <div className="event-msg">
+                        {e.device_hostname ? `${e.device_hostname} · ` : ""}{e.message}
+                      </div>
+                      <div className="event-meta">
+                        <span className="mono">{e.rule_name}</span>
+                        <span>{e.policy_name || "Baseline Policy"} · v{e.policy_version_number || 1}</span>
+                        <span>{getRelativeTime(e.timestamp)}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Pagination Controls */}
