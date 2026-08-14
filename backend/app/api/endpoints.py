@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.core import security
 from app.models import models
 from app.schemas import schemas
-from app.services import webhook_service
+from app.services import webhook_service, compliance_service
 
 router = APIRouter()
 
@@ -507,6 +507,18 @@ def agent_checkin(
 
     # 4. State Machine / Findings Updates: CURRENT only
     if prov_status == "CURRENT":
+        # Generate immutable audit Evidence records for all evaluated policy rules
+        try:
+            compliance_service.generate_evidence_for_checkin(
+                db=db,
+                device=device,
+                check_run=check_run,
+                policy_version=version,
+                reported_findings=checkrun_in.findings,
+            )
+        except Exception:
+            pass
+
         # Extract evaluated rules from the policy version JSON/YAML
         import json as py_json
         try:
@@ -2696,4 +2708,181 @@ def test_webhook(
         error_message=delivery.error_message,
         delivered_at=delivery.delivered_at,
         created_at=delivery.created_at,
+    )
+
+
+# ==========================================
+# Phase 8 — Compliance & Evidence Endpoints
+# ==========================================
+
+
+@router.get("/compliance/summary", response_model=schemas.ComplianceSummaryResponse)
+def get_compliance_summary(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.memberships:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org_id = current_user.memberships[0].organization_id
+    summary = compliance_service.calculate_fleet_compliance_summary(db, org_id)
+    return summary
+
+
+@router.get("/compliance/controls", response_model=List[schemas.ControlPostureSummary])
+def get_compliance_controls(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.memberships:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org_id = current_user.memberships[0].organization_id
+    controls = compliance_service.get_compliance_controls_posture(db, org_id)
+    return controls
+
+
+@router.get("/compliance/controls/{control_id}", response_model=schemas.ControlDetailResponse)
+def get_compliance_control_detail(
+    control_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.memberships:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org_id = current_user.memberships[0].organization_id
+    detail = compliance_service.get_control_detail(db, org_id, control_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail=f"Control '{control_id}' not found")
+    return detail
+
+
+@router.get("/devices/{device_id}/compliance", response_model=schemas.DeviceComplianceResponse)
+def get_device_compliance(
+    device_id: uuid.UUID,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == device_id,
+            models.Device.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    posture = compliance_service.get_device_compliance_posture(db, device.organization_id, device.id)
+    if not posture:
+        raise HTTPException(status_code=404, detail="Device compliance posture not found")
+    return posture
+
+
+@router.get("/devices/{device_id}/evidence", response_model=schemas.EvidenceListResponse)
+def get_device_evidence(
+    device_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == device_id,
+            models.Device.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    total, items = compliance_service.get_device_evidence_history(
+        db, device.organization_id, device.id, limit=limit, offset=offset
+    )
+
+    resp_items = []
+    for ev in items:
+        resp_items.append(
+            schemas.EvidenceResponse(
+                id=ev.id,
+                organization_id=ev.organization_id,
+                device_id=ev.device_id,
+                hostname=device.hostname,
+                control_id=ev.control_id,
+                rule_id=ev.rule_id,
+                check_run_id=ev.check_run_id,
+                policy_version_id=ev.policy_version_id,
+                status=ev.status,
+                severity=ev.severity,
+                observed_result=ev.observed_result,
+                evaluation_timestamp=ev.evaluation_timestamp,
+                evidence_hash=ev.evidence_hash,
+                created_at=ev.created_at,
+            )
+        )
+    return schemas.EvidenceListResponse(
+        total=total, limit=limit, offset=offset, items=resp_items
+    )
+
+
+@router.get("/compliance/evidence", response_model=schemas.EvidenceListResponse)
+def get_fleet_evidence(
+    control_id: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    device_id: Optional[uuid.UUID] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.memberships:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org_id = current_user.memberships[0].organization_id
+
+    # If device_id is provided, verify it belongs to org
+    if device_id:
+        dev = (
+            db.query(models.Device)
+            .filter(
+                models.Device.id == device_id,
+                models.Device.organization_id == org_id
+            )
+            .first()
+        )
+        if not dev:
+            raise HTTPException(status_code=404, detail="Device not found")
+
+    total, items = compliance_service.get_fleet_evidence_feed(
+        db, org_id, control_id=control_id, status=status_filter, device_id=device_id, limit=limit, offset=offset
+    )
+
+    device_ids = list({ev.device_id for ev in items})
+    device_map = {}
+    if device_ids:
+        devs = db.query(models.Device).filter(models.Device.id.in_(device_ids)).all()
+        device_map = {d.id: d.hostname for d in devs}
+
+    resp_items = []
+    for ev in items:
+        resp_items.append(
+            schemas.EvidenceResponse(
+                id=ev.id,
+                organization_id=ev.organization_id,
+                device_id=ev.device_id,
+                hostname=device_map.get(ev.device_id, "Unknown"),
+                control_id=ev.control_id,
+                rule_id=ev.rule_id,
+                check_run_id=ev.check_run_id,
+                policy_version_id=ev.policy_version_id,
+                status=ev.status,
+                severity=ev.severity,
+                observed_result=ev.observed_result,
+                evaluation_timestamp=ev.evaluation_timestamp,
+                evidence_hash=ev.evidence_hash,
+                created_at=ev.created_at,
+            )
+        )
+    return schemas.EvidenceListResponse(
+        total=total, limit=limit, offset=offset, items=resp_items
     )
