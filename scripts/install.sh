@@ -1,89 +1,157 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# Installation Script for FlientSec Workstation Compliance Agent
-# Requires root privileges (sudo) to register systemd services.
+# ==============================================================================
+# FlientSec Linux Workstation Security Agent Installer
+# ==============================================================================
 
-set -e
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-# Target paths
-BIN_DEST="/usr/local/bin/flientsec-agent"
-CONF_DIR="/etc/flientsec"
-CONF_DEST="${CONF_DIR}/agent.yaml"
-SERVICE_DEST="/etc/systemd/system/flientsec-agent.service"
+echo -e "${BLUE}=== FlientSec Agent Installer ===${NC}"
 
-# Ensure script is run as root
-if [ "$EUID" -ne 0 ]; then
-  echo "Error: Please run this script with sudo or as root."
-  exit 1
+# 1. Verify root execution
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}Error: This script must be run as root (or via sudo).${NC}"
+   exit 1
 fi
 
-# Move to the workspace root directory
-CDPATH="" cd -- "$(dirname -- "$0")/.."
+# 2. Parse command-line flags
+SERVER_URL="http://localhost:8000"
+ENROLLMENT_TOKEN=""
+CONFIG_PATH="/etc/flientsec/agent.yaml"
+BINARY_PATH="/usr/local/bin/flientsec-agent"
+SERVICE_PATH="/etc/systemd/system/flientsec-agent.service"
 
-echo "==========================================="
-echo "Installing FlientSec Agent on Host Machine..."
-echo "==========================================="
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --url)
+      SERVER_URL="$2"
+      shift 2
+      ;;
+    --token)
+      ENROLLMENT_TOKEN="$2"
+      shift 2
+      ;;
+    --config)
+      CONFIG_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: sudo ./scripts/install.sh --token <ENROLLMENT_TOKEN> [--url <SERVER_URL>]"
+      exit 0
+      ;;
+    *)
+      echo -e "${RED}Unknown option: $1${NC}"
+      exit 1
+      ;;
+  esac
+done
 
-# 1. Build Go binary
-echo "Step 1: Compiling Go Agent..."
-if ! command -v go &> /dev/null; then
-  echo "Error: Go compiler is not installed. Please install Go before running the installer."
-  exit 1
+if [[ -z "$ENROLLMENT_TOKEN" && ! -f "$CONFIG_PATH" ]]; then
+    echo -e "${RED}Error: --token <ENROLLMENT_TOKEN> is required for initial installation.${NC}"
+    exit 1
 fi
 
-cd agent
-go mod tidy
-go build -o bin/flientsec-agent cmd/agent/main.go
-cd ..
+# 3. Create required directories with strict permissions
+echo -e "${BLUE}[1/5] Creating runtime directories...${NC}"
+mkdir -p /etc/flientsec
+chmod 0700 /etc/flientsec
 
-# 2. Copy binary to /usr/local/bin
-echo "Step 2: Installing binary to ${BIN_DEST}..."
-if systemctl is-active --quiet flientsec-agent; then
-  echo "Stopping active flientsec-agent daemon..."
-  systemctl stop flientsec-agent
+mkdir -p /var/lib/flientsec
+chmod 0700 /var/lib/flientsec
+
+# 4. Generate or update configuration
+echo -e "${BLUE}[2/5] Configuring agent...${NC}"
+if [[ ! -f "$CONFIG_PATH" || -n "$ENROLLMENT_TOKEN" ]]; then
+    cat > "$CONFIG_PATH" <<EOF
+server:
+  url: "${SERVER_URL}"
+  token: "${ENROLLMENT_TOKEN}"
+
+interval: 60
+heartbeat_interval: 30
+
+uuid_file_path: "/var/lib/flientsec/device.uuid"
+token_file_path: "/var/lib/flientsec/device.token"
+policy_file_path: "/var/lib/flientsec/policy.json"
+
+checks:
+  firewall: true
+  encryption: true
+  ssh: true
+  updates: true
+  runtime: true
+EOF
+    chmod 0600 "$CONFIG_PATH"
+    echo -e "${GREEN}Created ${CONFIG_PATH} with mode 0600${NC}"
 fi
-cp agent/bin/flientsec-agent "${BIN_DEST}"
-chmod 755 "${BIN_DEST}"
 
-# 3. Setup configuration folder and copy yaml
-echo "Step 3: Creating configuration folder in ${CONF_DIR}..."
-mkdir -p "${CONF_DIR}"
+# 5. Build/Install Agent Binary
+echo -e "${BLUE}[3/5] Installing agent binary...${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-if [ ! -f "${CONF_DEST}" ]; then
-  cp agent/agent.yaml "${CONF_DEST}"
-  chmod 644 "${CONF_DEST}"
-  # Update relative device_uuid path in /etc/flientsec/agent.yaml to be absolute
-  sed -i 's|uuid_file_path: "device_uuid"|uuid_file_path: "/etc/flientsec/device_uuid"|g' "${CONF_DEST}"
+if command -v go &> /dev/null && [[ -d "${REPO_DIR}/agent" ]]; then
+    echo "Building agent binary from source..."
+    (cd "${REPO_DIR}/agent" && go build -o "${BINARY_PATH}" ./cmd/agent/main.go)
+    chmod 0755 "${BINARY_PATH}"
+elif [[ -f "${REPO_DIR}/bin/flientsec-agent" ]]; then
+    cp "${REPO_DIR}/bin/flientsec-agent" "${BINARY_PATH}"
+    chmod 0755 "${BINARY_PATH}"
 else
-  echo "Configuration file already exists, skipping copy to protect user changes."
+    if [[ ! -f "${BINARY_PATH}" ]]; then
+        echo -e "${RED}Error: Could not locate or build flientsec-agent binary.${NC}"
+        exit 1
+    fi
 fi
+echo -e "${GREEN}Installed binary to ${BINARY_PATH}${NC}"
 
-# 4. Create systemd unit service file
-echo "Step 4: Writing systemd service descriptor to ${SERVICE_DEST}..."
-cat <<EOF > "${SERVICE_DEST}"
+# 6. Install systemd service unit
+echo -e "${BLUE}[4/5] Installing systemd service...${NC}"
+if [[ -f "${REPO_DIR}/packaging/systemd/flientsec-agent.service" ]]; then
+    cp "${REPO_DIR}/packaging/systemd/flientsec-agent.service" "${SERVICE_PATH}"
+else
+    cat > "${SERVICE_PATH}" <<EOF
 [Unit]
-Description=FlientSec Workstation Compliance Agent
-After=network.target
+Description=FlientSec Workstation Security Daemon
+Documentation=https://github.com/Rarebuffalo/Flientsec
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${BIN_DEST} -config ${CONF_DEST}
-Restart=on-failure
-RestartSec=10
-WorkingDirectory=${CONF_DIR}
+ExecStart=${BINARY_PATH} -config ${CONFIG_PATH}
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
+fi
+chmod 0644 "${SERVICE_PATH}"
 
-chmod 644 "${SERVICE_DEST}"
+# 7. Reload and start service
+echo -e "${BLUE}[5/5] Starting FlientSec service...${NC}"
+if command -v systemctl &> /dev/null; then
+    systemctl daemon-reload
+    systemctl enable flientsec-agent.service
+    systemctl restart flientsec-agent.service
+    echo -e "${GREEN}FlientSec agent service installed and started!${NC}"
+    echo -e "Check status with: ${YELLOW}systemctl status flientsec-agent.service${NC}"
+    echo -e "View logs with:   ${YELLOW}journalctl -u flientsec-agent.service -f${NC}"
+else
+    echo -e "${YELLOW}Warning: systemctl not detected. Service unit installed but not started automatically.${NC}"
+fi
 
-# 5. Reload and start systemd service
-echo "Step 5: Starting FlientSec service via systemd..."
-systemctl daemon-reload
-systemctl enable --now flientsec-agent
-
-echo "==========================================="
-echo "FlientSec Agent installed and active!"
-echo "Check daemon logs: journalctl -u flientsec-agent -f"
-echo "==========================================="
+echo -e "${GREEN}=== Installation Complete ===${NC}"
