@@ -310,16 +310,16 @@ export default function CompliancePage() {
           <table>
             <thead>
               <tr>
-                <th>Control ID</th>
-                <th>Control Name</th>
-                <th>Category</th>
-                <th>Severity</th>
-                <th>Mapped Rule</th>
-                <th>Passing</th>
-                <th>Failing</th>
-                <th>Score</th>
-                <th>Status</th>
-                <th className="text-right">Action</th>
+                <th style={{ width: "12%" }}>Control ID</th>
+                <th style={{ width: "26%" }}>Control Name</th>
+                <th style={{ width: "13%" }}>Category</th>
+                <th style={{ width: "9%" }}>Severity</th>
+                <th style={{ width: "16%" }}>Mapped Rule</th>
+                <th style={{ width: "7%" }}>Passing</th>
+                <th style={{ width: "7%" }}>Failing</th>
+                <th style={{ width: "10%" }}>Score</th>
+                <th style={{ width: "10%" }}>Status</th>
+                <th style={{ width: "8%" }} className="text-right">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -330,13 +330,13 @@ export default function CompliancePage() {
                   </td>
                   <td>
                     <div className="font-semibold text-text-primary text-xs">{ctrl.name}</div>
-                    <div className="text-[11px] text-text-muted truncate max-w-xs">{ctrl.description}</div>
+                    <div className="text-[11px] text-text-muted truncate max-w-xs" title={ctrl.description}>{ctrl.description}</div>
                   </td>
-                  <td className="text-xs text-text-secondary">{ctrl.category}</td>
+                  <td className="text-xs text-text-secondary whitespace-nowrap">{ctrl.category}</td>
                   <td>
                     <SeverityBadge severity={ctrl.severity} />
                   </td>
-                  <td className="font-mono text-[11px] text-text-muted">
+                  <td className="font-mono text-[11px] text-text-muted truncate max-w-[150px]" title={ctrl.mapped_rule_id}>
                     {ctrl.mapped_rule_id}
                   </td>
                   <td className="font-mono text-xs text-brand font-semibold">
@@ -429,21 +429,31 @@ export default function CompliancePage() {
           <table>
             <thead>
               <tr>
-                <th>Evaluated At</th>
-                <th>Device</th>
-                <th>Control ID</th>
-                <th>Rule ID</th>
-                <th>Status</th>
-                <th>Severity</th>
-                <th>Observed Result</th>
-                <th>Evidence SHA-256 Hash</th>
+                <th style={{ width: "16%" }}>Evaluated At</th>
+                <th style={{ width: "14%" }}>Device</th>
+                <th style={{ width: "10%" }}>Control ID</th>
+                <th style={{ width: "14%" }}>Rule ID</th>
+                <th style={{ width: "9%" }}>Status</th>
+                <th style={{ width: "8%" }}>Severity</th>
+                <th style={{ width: "15%" }}>Observed Result</th>
+                <th style={{ width: "14%" }}>Evidence SHA-256 Hash</th>
               </tr>
             </thead>
             <tbody>
-              {filteredEvidence.length === 0 ? (
+              {evidenceTotal === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center text-text-muted py-8">
-                    No evidence records matching current criteria.
+                  <td colSpan={8} className="text-center py-12">
+                    <FileCheck className="h-8 w-8 text-text-muted mb-2 mx-auto" />
+                    <div className="text-sm font-semibold text-text-primary">No compliance evidence recorded yet</div>
+                    <div className="text-xs text-text-muted mt-1 max-w-sm mx-auto">
+                      Evidence records are generated automatically upon workstation check-ins and policy evaluations.
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredEvidence.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-10 text-text-muted text-xs">
+                    No evidence records matching current search or filter criteria.
                   </td>
                 </tr>
               ) : (
@@ -463,14 +473,14 @@ export default function CompliancePage() {
                         href={`/devices/${ev.device_id}`}
                         className="font-medium text-text-primary hover:text-brand flex items-center space-x-1 text-xs"
                       >
-                        <span>{ev.hostname}</span>
-                        <ExternalLink className="h-3 w-3 opacity-60" />
+                        <span className="truncate max-w-[120px]" title={ev.hostname}>{ev.hostname}</span>
+                        <ExternalLink className="h-3 w-3 opacity-60 flex-shrink-0" />
                       </Link>
                     </td>
-                    <td className="font-mono font-bold text-xs text-text-secondary">
+                    <td className="font-mono font-bold text-xs text-brand">
                       {ev.control_id}
                     </td>
-                    <td className="font-mono text-[11px] text-text-muted truncate max-w-[140px]">
+                    <td className="font-mono text-[11px] text-text-muted truncate max-w-[140px]" title={ev.rule_id}>
                       {ev.rule_id}
                     </td>
                     <td>
