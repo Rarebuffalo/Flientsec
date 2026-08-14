@@ -2,15 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"flientsec-agent/checks"
@@ -27,18 +30,26 @@ type AgentConfig struct {
 		URL   string `yaml:"url"`
 		Token string `yaml:"token"`
 	} `yaml:"server"`
-	Interval          int             `yaml:"interval"`
-	HeartbeatInterval int             `yaml:"heartbeat_interval"`
-	UUIDFilePath      string          `yaml:"uuid_file_path"`
-	PolicyFilePath    string          `yaml:"policy_file_path"`
-	Checks            map[string]bool `yaml:"checks"`
+	Interval           int             `yaml:"interval"`
+	HeartbeatInterval  int             `yaml:"heartbeat_interval"`
+	UUIDFilePath       string          `yaml:"uuid_file_path"`
+	TokenFilePath      string          `yaml:"token_file_path"`
+	PolicyFilePath     string          `yaml:"policy_file_path"`
+	Checks             map[string]bool `yaml:"checks"`
 }
 
 var retryQueue = queue.NewRetryQueue()
 
 func main() {
 	// Parse CLI arguments
-	configPath := flag.String("config", "agent.yaml", "Path to agent.yaml config file")
+	defaultConfig := "agent.yaml"
+	if envCfg := os.Getenv("FLIENTSEC_CONFIG"); envCfg != "" {
+		defaultConfig = envCfg
+	} else if _, err := os.Stat("/etc/flientsec/agent.yaml"); err == nil {
+		defaultConfig = "/etc/flientsec/agent.yaml"
+	}
+
+	configPath := flag.String("config", defaultConfig, "Path to agent.yaml config file")
 	flag.Parse()
 
 	// Initialize structured logger (slog)
@@ -50,8 +61,39 @@ func main() {
 	// Load configuration
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
-		slog.Error("Failed to load config file", "path", *configPath, "err", err)
-		os.Exit(1)
+		slog.Warn("Could not load config file, attempting environment variable fallback", "path", *configPath, "err", err)
+		cfg = &AgentConfig{}
+	}
+
+	// Environment variable overrides
+	if envURL := os.Getenv("FLIENTSEC_SERVER_URL"); envURL != "" {
+		cfg.Server.URL = envURL
+	}
+	if envToken := os.Getenv("FLIENTSEC_ENROLLMENT_TOKEN"); envToken != "" {
+		cfg.Server.Token = envToken
+	}
+	if cfg.Server.URL == "" {
+		cfg.Server.URL = "http://localhost:8000"
+	}
+	if cfg.Interval <= 0 {
+		cfg.Interval = 60
+	}
+	if cfg.HeartbeatInterval <= 0 {
+		cfg.HeartbeatInterval = 30
+	}
+	if cfg.UUIDFilePath == "" {
+		if err := os.MkdirAll("/var/lib/flientsec", 0700); err == nil {
+			cfg.UUIDFilePath = "/var/lib/flientsec/device.uuid"
+		} else {
+			cfg.UUIDFilePath = "device.uuid"
+		}
+	}
+	if cfg.TokenFilePath == "" {
+		if err := os.MkdirAll("/var/lib/flientsec", 0700); err == nil {
+			cfg.TokenFilePath = "/var/lib/flientsec/device.token"
+		} else {
+			cfg.TokenFilePath = "device.token"
+		}
 	}
 
 	// Read or Generate Device UUID
@@ -80,32 +122,51 @@ func main() {
 	// Initialize API Client
 	apiClient := client.NewClient(cfg.Server.URL, cfg.Server.Token)
 
-	// Register device
-	slog.Info("Registering device with backend...", "url", cfg.Server.URL)
-	err = apiClient.Register(client.DeviceRegister{
-		ID:            deviceUUID,
-		Hostname:      hostname,
-		OSName:        osName,
-		OSVersion:     osVer,
-		OSArch:        osArch,
-		KernelVersion: kernelVer,
-		AgentVersion:  agentVersion,
-	})
-	if err != nil {
-		slog.Error("Device registration failed. Daemon will run but check-ins may fail until registered", "err", err)
-	} else {
-		slog.Info("Device registration completed successfully")
+	// Load existing device token if available
+	savedDeviceToken, _ := loadDeviceToken(cfg.TokenFilePath)
+	if savedDeviceToken != "" {
+		apiClient.DeviceToken = savedDeviceToken
+		slog.Info("Loaded persistent device credentials from storage")
 	}
+
+	// If no device token or on bootstrap, attempt registration
+	if apiClient.DeviceToken == "" {
+		slog.Info("Registering device with backend...", "url", cfg.Server.URL)
+		err = apiClient.Register(client.DeviceRegister{
+			ID:            deviceUUID,
+			Hostname:      hostname,
+			OSName:        osName,
+			OSVersion:     osVer,
+			OSArch:        osArch,
+			KernelVersion: kernelVer,
+			AgentVersion:  agentVersion,
+		})
+		if err != nil {
+			slog.Error("Device registration failed. Daemon will run but check-ins may fail until registered", "err", err)
+		} else {
+			slog.Info("Device registration completed successfully")
+			if saveErr := saveDeviceToken(cfg.TokenFilePath, apiClient.DeviceToken); saveErr != nil {
+				slog.Warn("Failed to persist device token to storage", "err", saveErr)
+			}
+		}
+	}
+
+	// Context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle OS termination signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Start background heartbeat loop
 	slog.Info("Starting background heartbeat dispatcher...", "interval_sec", cfg.HeartbeatInterval)
-	startHeartbeatLoop(apiClient, deviceUUID, cfg.HeartbeatInterval)
+	startHeartbeatLoop(ctx, apiClient, deviceUUID, cfg.HeartbeatInterval)
 
 	// Determine policy path
 	policyPath := cfg.PolicyFilePath
 	if policyPath == "" {
 		policyPath = "/var/lib/flientsec/policy.json"
-		// If directory is not writeable, use relative policy.json
 		if err := os.MkdirAll("/var/lib/flientsec", 0700); err != nil {
 			policyPath = "policy.json"
 		}
@@ -118,11 +179,28 @@ func main() {
 	// Run main check-in ticker loop
 	slog.Info("Entering posture evaluation daemon loop...", "interval_sec", cfg.Interval)
 	checkTicker := time.NewTicker(time.Duration(cfg.Interval) * time.Second)
+	defer checkTicker.Stop()
 
-	for range checkTicker.C {
-		slog.Info("Triggering periodic check-in run...")
-		runChecksAndPost(apiClient, deviceUUID, cfg, policyPath)
-	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-checkTicker.C:
+				slog.Info("Triggering periodic check-in run...")
+				runChecksAndPost(apiClient, deviceUUID, cfg, policyPath)
+			}
+		}
+	}()
+
+	// Wait for termination signal
+	sig := <-sigChan
+	slog.Info("Termination signal received. Shutting down gracefully...", "signal", sig.String())
+	cancel()
+
+	// Attempt final queue flush on exit
+	flushRetryQueue(apiClient, deviceUUID)
+	slog.Info("FlientSec Agent stopped successfully.")
 }
 
 func loadConfig(path string) (*AgentConfig, error) {
@@ -136,6 +214,24 @@ func loadConfig(path string) (*AgentConfig, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func loadDeviceToken(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func saveDeviceToken(filePath, token string) error {
+	dir := filepath.Dir(filePath)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(filePath, []byte(token), 0600)
 }
 
 func getOrGenerateUUID(filePath string) (string, error) {
@@ -159,7 +255,7 @@ func getOrGenerateUUID(filePath string) (string, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
 	if dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return "", err
 		}
 	}
@@ -203,14 +299,20 @@ func getKernelVersion() string {
 	return "unknown"
 }
 
-func startHeartbeatLoop(c *client.Client, deviceID string, intervalSecs int) {
+func startHeartbeatLoop(ctx context.Context, c *client.Client, deviceID string, intervalSecs int) {
 	ticker := time.NewTicker(time.Duration(intervalSecs) * time.Second)
 	go func() {
-		for range ticker.C {
-			slog.Debug("Sending heartbeat check...")
-			err := c.SendHeartbeat(deviceID)
-			if err != nil {
-				slog.Error("Heartbeat ping failed", "err", err)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				slog.Debug("Sending heartbeat check...")
+				err := c.SendHeartbeat(deviceID)
+				if err != nil {
+					slog.Error("Heartbeat ping failed", "err", err)
+				}
 			}
 		}
 	}()
