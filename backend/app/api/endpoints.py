@@ -715,20 +715,20 @@ def list_devices(
     # Find matching organizations memberships
     memberships = [m.organization_id for m in current_user.memberships]
 
-    # Update offline states based on check-in timeouts (> 2 minutes means
-    # OFFLINE for dashboard preview)
+    # Evaluate stale devices (> 2 minutes without check-in becomes OFFLINE)
     timeout_threshold = datetime.utcnow() - timedelta(minutes=2)
-    offline_devices = (
+    stale_devices = (
         db.query(models.Device)
         .filter(
-            models.Device.last_checkin < timeout_threshold,
+            models.Device.organization_id.in_(memberships),
             models.Device.status == "ONLINE",
+            models.Device.last_checkin < timeout_threshold,
         )
         .all()
     )
-    for dev in offline_devices:
+    for dev in stale_devices:
         dev.status = "OFFLINE"
-    if offline_devices:
+    if stale_devices:
         db.commit()
 
     return (
@@ -739,6 +739,18 @@ def list_devices(
         )
         .all()
     )
+
+
+def evaluate_device_liveness(
+    device: models.Device, db: Session
+) -> models.Device:
+    if device.status == "ONLINE" and device.last_checkin:
+        timeout_threshold = datetime.utcnow() - timedelta(minutes=2)
+        if device.last_checkin < timeout_threshold:
+            device.status = "OFFLINE"
+            db.commit()
+            db.refresh(device)
+    return device
 
 
 @router.get("/devices/{id}", response_model=schemas.DeviceResponse)
@@ -758,7 +770,7 @@ def get_device(
     )
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    return device
+    return evaluate_device_liveness(device, db)
 
 
 @router.post("/devices/{id}/revoke", response_model=schemas.DeviceResponse)
@@ -2032,3 +2044,57 @@ def get_fleet_events(
         limit=limit,
         offset=offset
     )
+
+
+@router.post("/maintenance/cleanup-checkruns")
+def cleanup_checkruns(
+    retention_days: int = Query(30, ge=1, le=365),
+    batch_size: int = Query(1000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    cutoff_timestamp = datetime.utcnow() - timedelta(days=retention_days)
+
+    # Scoped to devices in user's organizations
+    org_device_ids = [
+        d.id for d in db.query(models.Device.id)
+        .filter(models.Device.organization_id.in_(memberships))
+        .all()
+    ]
+
+    if not org_device_ids:
+        return {
+            "status": "completed",
+            "deleted_count": 0,
+            "retention_days": retention_days,
+            "cutoff_timestamp": cutoff_timestamp.isoformat()
+        }
+
+    # Fetch expired check runs up to batch_size
+    expired_runs = (
+        db.query(models.CheckRun.id)
+        .filter(
+            models.CheckRun.device_id.in_(org_device_ids),
+            models.CheckRun.timestamp < cutoff_timestamp,
+        )
+        .limit(batch_size)
+        .all()
+    )
+
+    deleted_count = 0
+    if expired_runs:
+        expired_ids = [r.id for r in expired_runs]
+        deleted_count = (
+            db.query(models.CheckRun)
+            .filter(models.CheckRun.id.in_(expired_ids))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+
+    return {
+        "status": "completed",
+        "deleted_count": deleted_count,
+        "retention_days": retention_days,
+        "cutoff_timestamp": cutoff_timestamp.isoformat()
+    }
