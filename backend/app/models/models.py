@@ -384,3 +384,69 @@ class WebhookDelivery(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     webhook = relationship("Webhook", back_populates="deliveries")
+
+
+class ComplianceControl(Base):
+    __tablename__ = "compliance_controls"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    control_id = Column(String, nullable=False, index=True)  # e.g. FLIENT-001
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    category = Column(String, default="Endpoint Security", nullable=False)
+    severity = Column(String, default="HIGH", nullable=False)
+    mapped_rule_id = Column(String, nullable=False)  # e.g. workstation.firewall.enabled
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    organization = relationship("Organization")
+
+
+class Evidence(Base):
+    __tablename__ = "evidence"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    device_id = Column(
+        UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False, index=True
+    )
+    control_id = Column(String, nullable=False, index=True)
+    rule_id = Column(String, nullable=False, index=True)
+    check_run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("check_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    policy_version_id = Column(
+        UUID(as_uuid=True), ForeignKey("policy_versions.id"), nullable=True
+    )
+    status = Column(String, nullable=False)  # PASS, FAIL, UNKNOWN, NOT_APPLICABLE
+    severity = Column(String, default="MEDIUM", nullable=False)
+    observed_result = Column(String, nullable=False)
+    evaluation_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    evidence_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    organization = relationship("Organization")
+    device = relationship("Device")
+    check_run = relationship("CheckRun")
+    policy_version = relationship("PolicyVersion")
+
+    @validates(
+        "organization_id", "device_id", "control_id", "rule_id",
+        "status", "severity", "observed_result", "evaluation_timestamp", "evidence_hash"
+    )
+    def validate_immutability(self, key, value):
+        from sqlalchemy.orm.attributes import get_history
+        hist = get_history(self, key)
+        if hist.deleted and len(hist.deleted) > 0 and hist.deleted[0] is not None:
+            raise ValueError(f"Evidence records are strictly immutable. Cannot modify field '{key}'.")
+        current_val = getattr(self, key, None)
+        if current_val is not None and current_val != value and not hist.has_changes():
+            raise ValueError(f"Evidence records are strictly immutable. Cannot modify field '{key}'.")
+        return value
