@@ -761,6 +761,30 @@ def get_device(
     return device
 
 
+@router.post("/devices/{id}/revoke", response_model=schemas.DeviceResponse)
+@router.post("/devices/{id}/decommission", response_model=schemas.DeviceResponse)
+def decommission_device(
+    id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == id,
+            models.Device.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    device.status = "DECOMMISSIONED"
+    db.commit()
+    db.refresh(device)
+    return device
+
+
 @router.get(
     "/devices/{id}/latest-run",
     response_model=Optional[schemas.CheckRunResponse],
