@@ -364,7 +364,7 @@ export default function DeviceDetails() {
         <div className="chain">
           <div className="chain-link">
             <div className="chain-eyebrow">Workstation</div>
-            <div className="chain-value">{device.hostname}</div>
+            <div className="chain-value" title={device.hostname}>{device.hostname}</div>
           </div>
           <div className="chain-link">
             <div className="chain-eyebrow">Status</div>
@@ -374,7 +374,7 @@ export default function DeviceDetails() {
           </div>
           <div className="chain-link">
             <div className="chain-eyebrow">Top issue</div>
-            <div className="chain-value truncate">{topIssue ? topIssue.check_name : "None"}</div>
+            <div className="chain-value" title={topIssue ? topIssue.check_name : "None"}>{topIssue ? topIssue.check_name : "None"}</div>
           </div>
           <div className="chain-link">
             <div className="chain-eyebrow">Severity</div>
@@ -384,12 +384,18 @@ export default function DeviceDetails() {
           </div>
           <div className="chain-link">
             <div className="chain-eyebrow">Classification</div>
-            <div className="chain-value mono">{topIssue ? (topIssue.drift_type || "DEVICE_DRIFT") : "—"}</div>
+            <div className="chain-value" title={topIssue?.drift_type || "None"}>
+              {topIssue?.drift_type === "POLICY_CHANGE_NON_COMPLIANCE"
+                ? "Policy change"
+                : topIssue?.drift_type === "DEVICE_DRIFT"
+                ? "Device drift"
+                : topIssue ? "Drift" : "—"}
+            </div>
           </div>
           <div className="chain-link">
             <div className="chain-eyebrow">Policy</div>
-            <div className="chain-value mono truncate">
-              {latestRun?.policy_name || "Baseline"} v{latestRun?.version_number || "?"}
+            <div className="chain-value mono" title={`${latestRun?.policy_name || effectivePolicy?.name || "Baseline"} v${latestRun?.version_number || effectivePolicy?.active_version_number || 1}`}>
+              {latestRun?.policy_name || effectivePolicy?.name || "Baseline"} v{latestRun?.version_number || effectivePolicy?.active_version_number || 1}
             </div>
           </div>
           <div className="chain-link">
@@ -419,7 +425,7 @@ export default function DeviceDetails() {
           </div>
           <div className="info-cell">
             <div className="info-label">Active policy</div>
-            <div className="info-value mono">{effectivePolicy?.policy_name || "Baseline"}</div>
+            <div className="info-value mono">{effectivePolicy?.name || effectivePolicy?.policy_name || "Baseline"}</div>
           </div>
         </div>
       </div>
@@ -427,11 +433,11 @@ export default function DeviceDetails() {
       {/* Provenance Alignment Section */}
       <div className="section">
         <div className="section-head"><div className="section-title">Provenance alignment</div></div>
-        <div className="align-grid">
+        <div className="align-panel">
           <div className="align-cell">
             <div className="align-label">Assigned version</div>
-            <div className="align-value mono">
-              {effectivePolicy ? `v${effectivePolicy.version_number} (${effectivePolicy.policy_name})` : "None"}
+            <div className="align-value mono" title={effectivePolicy ? `v${effectivePolicy.active_version_number ?? effectivePolicy.version_number ?? 1} (${effectivePolicy.name || effectivePolicy.policy_name || "Baseline"})` : "Not assigned"}>
+              {effectivePolicy ? `v${effectivePolicy.active_version_number ?? effectivePolicy.version_number ?? 1} (${effectivePolicy.name || effectivePolicy.policy_name || "Baseline"})` : "Not assigned"}
             </div>
           </div>
           <div className="align-arrow">
