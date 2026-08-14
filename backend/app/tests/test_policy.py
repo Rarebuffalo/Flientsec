@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models import models
 from alembic.config import Config
 from alembic import command
+from app.core import security
 
 
 def create_org_and_user(db):
@@ -3353,3 +3354,50 @@ def test_fleet_findings_and_events_read_apis(client, db):
     assert resp.status_code == 200
     assert resp.json()["total"] == 1
     assert resp.json()["items"][0]["id"] == str(e1.id)
+
+
+def test_decommission_device_flow(client, db):
+    # Setup test org and user
+    org, user = create_org_and_user(db)
+    token = security.create_access_token(subject=user.email)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    device = models.Device(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        device_token="dev_tok_decom",
+        status="ONLINE",
+        hostname="Laptop-To-Decom",
+        os_name="Linux",
+        os_version="Debian",
+        os_arch="x86_64",
+        kernel_version="6.1.0",
+        agent_version="1.0.0"
+    )
+    db.add(device)
+    db.commit()
+
+    # Call revoke endpoint
+    resp = client.post(f"/api/v1/devices/{device.id}/revoke", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "DECOMMISSIONED"
+
+    # Verify device status in DB is DECOMMISSIONED
+    db.refresh(device)
+    assert device.status == "DECOMMISSIONED"
+
+    # Verify that agent check-in is rejected once decommissioned
+    checkin_payload = {
+        "id": str(uuid.uuid4()),
+        "status": "PASS",
+        "score": 100,
+        "timestamp": datetime.utcnow().isoformat(),
+        "findings": []
+    }
+    agent_headers = {
+        "Device-Uuid": str(device.id),
+        "X-Device-Token": "dev_tok_decom"
+    }
+    checkin_resp = client.post("/api/v1/agent/checkin", json=checkin_payload, headers=agent_headers)
+    assert checkin_resp.status_code == 403
+    assert "decommissioned" in checkin_resp.json()["detail"].lower()
