@@ -7,7 +7,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import or_
@@ -59,6 +59,22 @@ def dispatch_webhooks_for_event(db: Session, org_id: uuid.UUID, event_data: dict
                 )
     except Exception:
         pass
+
+
+def dispatch_webhooks_background_worker(org_id: uuid.UUID, event_data: dict):
+    """
+    Asynchronously delivers webhooks using an isolated database session,
+    ensuring agent check-in and policy management requests are not blocked
+    by slow, unhealthily responding, or timed-out external webhook receivers.
+    """
+    from app.core import database
+    db = database.SessionLocal()
+    try:
+        dispatch_webhooks_for_event(db, org_id, event_data)
+    except Exception:
+        pass
+    finally:
+        db.close()
 
 
 # Helper to fetch current user from JWT token
@@ -377,6 +393,7 @@ def agent_heartbeat(
 @router.post("/agent/checkin", response_model=schemas.CheckRunResponse)
 def agent_checkin(
     checkrun_in: schemas.CheckRunCreate,
+    background_tasks: BackgroundTasks,
     device_uuid: str = Header(...),
     x_device_token: str = Header(...),
     db: Session = Depends(get_db),
@@ -728,9 +745,14 @@ def agent_checkin(
     db.commit()
     db.refresh(check_run)
 
-    # Dispatch webhooks after transaction commits safely
+    # Dispatch webhooks asynchronously after transaction commits safely
     for evt_info in events_to_dispatch:
-        dispatch_webhooks_for_event(db, device.organization_id, evt_info)
+        if background_tasks:
+            background_tasks.add_task(
+                dispatch_webhooks_background_worker, device.organization_id, evt_info
+            )
+        else:
+            dispatch_webhooks_background_worker(device.organization_id, evt_info)
 
     return check_run
 
@@ -1504,6 +1526,7 @@ def activate_policy_version(
 )
 def rollback_policy_version(
     policy_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     target_version_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -1594,7 +1617,7 @@ def rollback_policy_version(
     db.add(audit_event)
     db.commit()
 
-    # Webhook dispatch for POLICY_ROLLBACK
+    # Webhook dispatch for POLICY_ROLLBACK asynchronously via BackgroundTasks
     rollback_payload = {
         "id": str(event_id),
         "type": "POLICY_ROLLBACK",
@@ -1612,15 +1635,25 @@ def rollback_policy_version(
             "email": current_user.email,
         },
     }
-    dispatch_webhooks_for_event(
-        db,
-        policy.organization_id,
-        {
-            "id": event_id,
-            "type": "POLICY_ROLLBACK",
-            "payload": rollback_payload,
-        },
-    )
+    if background_tasks:
+        background_tasks.add_task(
+            dispatch_webhooks_background_worker,
+            policy.organization_id,
+            {
+                "id": event_id,
+                "type": "POLICY_ROLLBACK",
+                "payload": rollback_payload,
+            },
+        )
+    else:
+        dispatch_webhooks_background_worker(
+            policy.organization_id,
+            {
+                "id": event_id,
+                "type": "POLICY_ROLLBACK",
+                "payload": rollback_payload,
+            },
+        )
 
     return schemas.PolicyRollbackResponse(
         status="success",
