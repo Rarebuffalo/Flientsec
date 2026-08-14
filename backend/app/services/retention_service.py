@@ -14,7 +14,7 @@ _cleanup_lock = threading.Lock()
 def purge_expired_checkruns(retention_days: int = 30, batch_size: int = 1000) -> int:
     """
     Performs safe batch deletion of expired CheckRun records across all organizations.
-    Maintains Findings, Events, and Audit histories intact.
+    Maintains Findings, Events, Evidence, and Audit histories intact.
     """
     if not _cleanup_lock.acquire(blocking=False):
         logger.info("Retention cleanup already running in another worker, skipping.")
@@ -59,6 +59,48 @@ def purge_expired_checkruns(retention_days: int = 30, batch_size: int = 1000) ->
     return total_deleted
 
 
+def purge_expired_evidence(evidence_retention_days: int = 90, batch_size: int = 1000) -> int:
+    """
+    Performs safe batch deletion of expired audit Evidence records older than the compliance retention threshold.
+    """
+    total_deleted = 0
+    db = database.SessionLocal()
+    try:
+        cutoff = datetime.utcnow() - timedelta(days=evidence_retention_days)
+        while True:
+            expired_ids = [
+                r.id for r in db.query(models.Evidence.id)
+                .filter(models.Evidence.evaluation_timestamp < cutoff)
+                .limit(batch_size)
+                .all()
+            ]
+            if not expired_ids:
+                break
+
+            deleted = (
+                db.query(models.Evidence)
+                .filter(models.Evidence.id.in_(expired_ids))
+                .delete(synchronize_session=False)
+            )
+            db.commit()
+            total_deleted += deleted
+            if deleted < batch_size:
+                break
+
+        if total_deleted > 0:
+            logger.info(
+                f"Automated evidence retention cleanup: purged {total_deleted} expired Evidence records "
+                f"older than {evidence_retention_days} days."
+            )
+    except Exception as e:
+        logger.error(f"Error during automated evidence retention cleanup: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+    return total_deleted
+
+
 def _retention_worker(interval_seconds: int = 86400, retention_days: int = 30):
     """
     Background worker loop that triggers cleanup on interval.
@@ -67,6 +109,7 @@ def _retention_worker(interval_seconds: int = 86400, retention_days: int = 30):
     while not _stop_event.is_set():
         try:
             purge_expired_checkruns(retention_days=retention_days)
+            purge_expired_evidence(evidence_retention_days=90)
         except Exception as e:
             logger.error(f"Retention worker loop exception: {str(e)}")
 
