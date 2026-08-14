@@ -1,0 +1,23 @@
+[Unit]
+Description=FlientSec Workstation Security Daemon
+Documentation=https://github.com/Rarebuffalo/Flientsec
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/flientsec-agent -config /etc/flientsec/agent.yaml
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+# Security Hardening Settings
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+
+[Install]
+WantedBy=multi-user.target
