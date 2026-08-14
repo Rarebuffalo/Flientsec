@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft, ShieldCheck, X
+  ArrowLeft, ShieldCheck, X, Copy, Check, FileCheck, Layers, ExternalLink
 } from "lucide-react"
 import {
   StatusBadge, ConnectionBadge, LoadingState, SeverityBadge
@@ -63,6 +63,43 @@ interface HistoryEvent {
   policy_version_id: string | null
 }
 
+interface DeviceControlStatus {
+  control_id: string
+  name: string
+  category: string
+  severity: string
+  mapped_rule_id: string
+  status: string
+  last_evaluated_at: string | null
+  observed_result: string | null
+}
+
+interface DeviceCompliance {
+  device_id: string
+  hostname: string
+  compliance_score: number
+  compliance_status: string
+  last_evaluated_at: string | null
+  controls: DeviceControlStatus[]
+}
+
+interface EvidenceItem {
+  id: string
+  organization_id: string
+  device_id: string
+  hostname: string
+  control_id: string
+  rule_id: string
+  check_run_id: string | null
+  policy_version_id: string | null
+  status: string
+  severity: string
+  observed_result: string
+  evaluation_timestamp: string
+  evidence_hash: string
+  created_at: string
+}
+
 // Relative time formatter helper
 function getRelativeTime(dateString: string | null): string {
   if (!dateString) return "Never"
@@ -93,10 +130,13 @@ export default function DeviceDetails() {
   const [resolvedFindings, setResolvedFindings] = useState<Finding[]>([])
   const [checkRuns, setCheckRuns] = useState<CheckRun[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
+  const [deviceCompliance, setDeviceCompliance] = useState<DeviceCompliance | null>(null)
+  const [evidenceList, setEvidenceList] = useState<EvidenceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [copiedHash, setCopiedHash] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<"active" | "resolved">("active")
+  const [activeTab, setActiveTab] = useState<"active" | "resolved" | "controls" | "evidence">("active")
 
   // Finding inspection drawer states
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null)
@@ -169,6 +209,21 @@ export default function DeviceDetails() {
           const histData = await histRes.json()
           setHistory(histData)
         }
+
+        // Fetch Device Compliance Posture
+        const compRes = await fetch(`${apiUrl}/api/v1/devices/${deviceId}/compliance`, { headers })
+        if (compRes.ok) {
+          const compData = await compRes.json()
+          setDeviceCompliance(compData)
+        }
+
+        // Fetch Device Evidence Records
+        const evRes = await fetch(`${apiUrl}/api/v1/devices/${deviceId}/evidence?limit=50`, { headers })
+        if (evRes.ok) {
+          const evData = await evRes.json()
+          setEvidenceList(evData.items || [])
+        }
+
         setError(null)
       } catch (err: any) {
         setError(err.message || "Failed to load device details")
@@ -213,6 +268,12 @@ export default function DeviceDetails() {
     } catch (err: any) {
       alert(err.message || "Failed to revoke device")
     }
+  }
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedHash(id)
+    setTimeout(() => setCopiedHash(null), 2000)
   }
 
   if (loading) {
@@ -349,34 +410,38 @@ export default function DeviceDetails() {
             <div className="info-value">{device.os_name} {device.os_version}</div>
           </div>
           <div className="info-cell">
-            <div className="info-label">Architecture</div>
-            <div className="info-value">{device.os_arch}</div>
-          </div>
-          <div className="info-cell">
-            <div className="info-label">Kernel</div>
-            <div className="info-value truncate">{device.kernel_version}</div>
+            <div className="info-label">Architecture / Kernel</div>
+            <div className="info-value mono">{device.os_arch} · {device.kernel_version}</div>
           </div>
           <div className="info-cell">
             <div className="info-label">Agent version</div>
-            <div className="info-value">{device.agent_version}</div>
+            <div className="info-value mono">{device.agent_version}</div>
+          </div>
+          <div className="info-cell">
+            <div className="info-label">Active policy</div>
+            <div className="info-value mono">{effectivePolicy?.policy_name || "Baseline"}</div>
           </div>
         </div>
       </div>
 
-      {/* Policy Alignment */}
+      {/* Provenance Alignment Section */}
       <div className="section">
-        <div className="section-head"><div className="section-title">Policy alignment</div></div>
-        <div className="align-panel">
+        <div className="section-head"><div className="section-title">Provenance alignment</div></div>
+        <div className="align-grid">
           <div className="align-cell">
-            <div className="align-label">Desired policy</div>
-            <div className="align-value">{effectivePolicy ? `${effectivePolicy.name} v${effectivePolicy.active_version_number || "Draft"}` : "None Assigned"}</div>
+            <div className="align-label">Assigned version</div>
+            <div className="align-value mono">
+              {effectivePolicy ? `v${effectivePolicy.version_number} (${effectivePolicy.policy_name})` : "None"}
+            </div>
           </div>
           <div className="align-arrow">
             <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </div>
           <div className="align-cell">
-            <div className="align-label">Last evaluated</div>
-            <div className="align-value">{latestRun?.policy_name || "Baseline"} v{latestRun?.version_number || "?"}</div>
+            <div className="align-label">Reported version</div>
+            <div className="align-value mono">
+              {latestRun?.version_number ? `v${latestRun.version_number}` : "None"}
+            </div>
           </div>
           <div className="align-arrow">
             <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -390,25 +455,37 @@ export default function DeviceDetails() {
         </div>
       </div>
 
-      {/* Findings Section */}
+      {/* Posture & Findings Tabs Section */}
       <div className="section">
         <div className="tabs">
           <div
             onClick={() => setActiveTab("active")}
             className={`tab ${activeTab === "active" ? "active" : ""}`}
           >
-            Active findings
+            Active findings ({openFindings.length})
           </div>
           <div
             onClick={() => setActiveTab("resolved")}
             className={`tab ${activeTab === "resolved" ? "active" : ""}`}
           >
-            Resolved
+            Resolved ({resolvedFindings.length})
+          </div>
+          <div
+            onClick={() => setActiveTab("controls")}
+            className={`tab ${activeTab === "controls" ? "active" : ""}`}
+          >
+            Compliance Controls ({deviceCompliance?.controls.length || 0})
+          </div>
+          <div
+            onClick={() => setActiveTab("evidence")}
+            className={`tab ${activeTab === "evidence" ? "active" : ""}`}
+          >
+            Audit Evidence ({evidenceList.length})
           </div>
         </div>
 
         <div className="table-wrap">
-          {activeTab === "active" ? (
+          {activeTab === "active" && (
             openFindings.length === 0 ? (
               <div className="empty">
                 <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
@@ -446,7 +523,9 @@ export default function DeviceDetails() {
                 </tbody>
               </table>
             )
-          ) : (
+          )}
+
+          {activeTab === "resolved" && (
             resolvedFindings.length === 0 ? (
               <div className="empty">
                 <ShieldCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
@@ -475,6 +554,119 @@ export default function DeviceDetails() {
                       </td>
                       <td data-label="Resolved" className="muted">
                         {getRelativeTime(finding.resolved_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          )}
+
+          {activeTab === "controls" && (
+            !deviceCompliance || deviceCompliance.controls.length === 0 ? (
+              <div className="empty">
+                <Layers className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+                <div className="empty-title">No compliance controls mapped</div>
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Control ID</th>
+                    <th>Control Name</th>
+                    <th>Category</th>
+                    <th>Severity</th>
+                    <th>Observed State</th>
+                    <th>Status</th>
+                    <th>Evaluated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deviceCompliance.controls.map((ctrl) => (
+                    <tr key={ctrl.control_id}>
+                      <td className="font-mono font-bold text-xs text-brand">{ctrl.control_id}</td>
+                      <td>
+                        <div className="font-semibold text-xs text-text-primary">{ctrl.name}</div>
+                        <div className="text-[11px] font-mono text-text-muted">{ctrl.mapped_rule_id}</div>
+                      </td>
+                      <td className="text-xs text-text-secondary">{ctrl.category}</td>
+                      <td><SeverityBadge severity={ctrl.severity} /></td>
+                      <td className="font-mono text-[11px] text-text-muted truncate max-w-xs" title={ctrl.observed_result || ""}>
+                        {ctrl.observed_result || "—"}
+                      </td>
+                      <td>
+                        <span className={`badge ${ctrl.status === "PASS" ? "badge-compliant" : ctrl.status === "FAIL" ? "badge-failing" : "badge-neutral"}`}>
+                          <span className="dot"></span>
+                          {ctrl.status}
+                        </span>
+                      </td>
+                      <td className="font-mono text-xs text-text-muted">
+                        {getRelativeTime(ctrl.last_evaluated_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          )}
+
+          {activeTab === "evidence" && (
+            evidenceList.length === 0 ? (
+              <div className="empty">
+                <FileCheck className="h-6 w-6 text-text-muted mb-3 mx-auto" />
+                <div className="empty-title">No audit evidence records yet</div>
+                <div className="empty-body">Check-in telemetry creates immutable, hashed evidence.</div>
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Evaluation Time</th>
+                    <th>Control ID</th>
+                    <th>Rule ID</th>
+                    <th>Status</th>
+                    <th>Severity</th>
+                    <th>Observed Result</th>
+                    <th>Evidence SHA-256 Hash</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evidenceList.map((ev) => (
+                    <tr key={ev.id}>
+                      <td className="font-mono text-xs text-text-secondary whitespace-nowrap">
+                        {new Date(ev.evaluation_timestamp).toLocaleString([], {
+                          month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
+                        })}
+                      </td>
+                      <td className="font-mono font-bold text-xs text-brand">{ev.control_id}</td>
+                      <td className="font-mono text-[11px] text-text-muted truncate max-w-[150px]">{ev.rule_id}</td>
+                      <td>
+                        <span className={`badge ${ev.status === "PASS" ? "badge-compliant" : "badge-failing"}`}>
+                          <span className="dot"></span>
+                          {ev.status}
+                        </span>
+                      </td>
+                      <td><SeverityBadge severity={ev.severity} /></td>
+                      <td className="font-mono text-[11px] text-text-muted truncate max-w-xs" title={ev.observed_result}>
+                        {ev.observed_result}
+                      </td>
+                      <td>
+                        <div className="flex items-center space-x-1.5 font-mono text-[11px] text-brand">
+                          <span title={ev.evidence_hash} className="truncate max-w-[120px]">
+                            {ev.evidence_hash.substring(0, 16)}...
+                          </span>
+                          <button
+                            onClick={() => copyToClipboard(ev.evidence_hash, ev.id)}
+                            title="Copy deterministic evidence hash"
+                            className="text-text-muted hover:text-white transition-colors p-1"
+                          >
+                            {copiedHash === ev.id ? (
+                              <Check className="h-3.5 w-3.5 text-brand" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
