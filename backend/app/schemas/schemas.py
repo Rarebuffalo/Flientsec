@@ -381,3 +381,107 @@ class PolicyRollbackResponse(BaseModel):
     active_version_id: UUID
     active_version_number: int
     message: str
+
+
+# Compliance & Evidence Schemas (Phase 8)
+class ComplianceControlResponse(BaseModel):
+    id: UUID
+    control_id: str
+    name: str
+    description: str
+    category: str
+    severity: str
+    mapped_rule_id: str
+    organization_id: Optional[UUID] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ControlPostureSummary(BaseModel):
+    control_id: str
+    name: str
+    description: str
+    category: str
+    severity: str
+    mapped_rule_id: str
+    status: str  # PASS, FAIL, UNKNOWN, NOT_APPLICABLE
+    compliance_percentage: int
+    passed_devices: int
+    failed_devices: int
+    unknown_devices: int
+
+
+class ComplianceSummaryDevices(BaseModel):
+    total: int
+    compliant: int
+    failing: int
+    unknown: int
+
+
+class ComplianceSummaryControls(BaseModel):
+    total: int
+    passed: int
+    failed: int
+    unknown: int
+
+
+class ComplianceSummaryResponse(BaseModel):
+    overall_score: int
+    devices: ComplianceSummaryDevices
+    controls: ComplianceSummaryControls
+    critical_failures: int
+    stale_devices: int
+
+
+class DeviceControlStatus(BaseModel):
+    control_id: str
+    name: str
+    severity: str
+    status: str  # PASS, FAIL, UNKNOWN, NOT_APPLICABLE
+    rule_id: str
+    observed_result: Optional[str] = None
+    last_evaluated_at: Optional[datetime] = None
+
+
+class DeviceComplianceResponse(BaseModel):
+    device_id: UUID
+    hostname: str
+    compliance_score: int
+    compliance_status: str
+    last_checkin: Optional[datetime] = None
+    controls: List[DeviceControlStatus] = []
+
+
+class EvidenceResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    device_id: UUID
+    hostname: Optional[str] = None
+    control_id: str
+    rule_id: str
+    check_run_id: Optional[UUID] = None
+    policy_version_id: Optional[UUID] = None
+    status: str
+    severity: str
+    observed_result: str
+    evaluation_timestamp: datetime
+    evidence_hash: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EvidenceListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[EvidenceResponse]
+
+
+class ControlDetailResponse(BaseModel):
+    control: ComplianceControlResponse
+    posture: ControlPostureSummary
+    failing_devices: List[DeviceResponse] = []
