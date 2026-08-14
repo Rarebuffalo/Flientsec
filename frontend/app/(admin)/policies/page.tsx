@@ -341,8 +341,9 @@ export default function PolicyManager() {
           <textarea
             value={yamlContent}
             onChange={(e) => setYamlContent(e.target.value)}
-            className="w-full h-96 p-4 font-mono text-sm bg-surface-1 border border-border rounded-xl focus:outline-none focus:ring-1 focus:ring-brand resize-none"
+            className="policy-editor-textarea"
             placeholder="# Enter policy YAML configuration rules here"
+            spellCheck={false}
           />
         ) : (
           <div className="code-block" style={{ padding: "16px 0" }}>
