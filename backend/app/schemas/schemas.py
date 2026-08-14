@@ -147,7 +147,7 @@ class CheckRunResponse(BaseModel):
 # Event Schemas
 class EventResponse(BaseModel):
     id: UUID
-    device_id: UUID
+    device_id: Optional[UUID] = None
     type: str
     rule_name: str
     message: str
@@ -264,6 +264,8 @@ class FindingDriftTypeEnum(str, Enum):
 class EventTypeEnum(str, Enum):
     VIOLATION_TRIGGERED = "VIOLATION_TRIGGERED"
     VIOLATION_RESOLVED = "VIOLATION_RESOLVED"
+    POLICY_ROLLBACK = "POLICY_ROLLBACK"
+    TEST_EVENT = "TEST_EVENT"
 
 
 class FleetFindingResponse(BaseModel):
@@ -300,8 +302,8 @@ class FleetEventResponse(BaseModel):
     timestamp: datetime
     message: str
     rule_name: str
-    device_id: UUID
-    device_hostname: str
+    device_id: Optional[UUID] = None
+    device_hostname: Optional[str] = None
     finding_id: Optional[UUID] = None
     policy_version_id: Optional[UUID] = None
     policy_name: Optional[str] = None
@@ -316,3 +318,66 @@ class FleetEventListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# Webhook Schemas (Phase 7)
+class WebhookCreate(BaseModel):
+    name: str
+    endpoint_url: str
+    events: Optional[List[str]] = ["VIOLATION_TRIGGERED", "VIOLATION_RESOLVED"]
+    enabled: Optional[bool] = True
+
+
+class WebhookUpdate(BaseModel):
+    name: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    events: Optional[List[str]] = None
+    enabled: Optional[bool] = None
+
+
+class WebhookResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    name: str
+    endpoint_url: str
+    enabled: bool
+    events: List[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookCreatedResponse(WebhookResponse):
+    signing_secret: str
+
+
+class WebhookDeliveryResponse(BaseModel):
+    id: UUID
+    webhook_id: UUID
+    event_id: Optional[UUID] = None
+    event_type: str
+    status: str
+    attempt_count: int
+    response_status_code: Optional[int] = None
+    error_message: Optional[str] = None
+    delivered_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookDetailResponse(WebhookResponse):
+    recent_deliveries: List[WebhookDeliveryResponse] = []
+
+
+# Policy Rollback Schema (Phase 7)
+class PolicyRollbackResponse(BaseModel):
+    status: str
+    policy_id: UUID
+    previous_active_version_id: Optional[UUID] = None
+    active_version_id: UUID
+    active_version_number: int
+    message: str
