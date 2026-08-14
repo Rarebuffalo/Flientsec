@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core import database
 from app.models import models
 from app.api import endpoints
+from app.services import retention_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -65,3 +66,18 @@ def startup_event():
         db.rollback()
     finally:
         db.close()
+
+    # Start automated retention scheduler in background thread (24h interval, 30 days retention)
+    try:
+        retention_service.start_retention_scheduler(
+            interval_seconds=86400, retention_days=30
+        )
+        logger.info("Started automated CheckRun retention scheduler.")
+    except Exception as e:
+        logger.error(f"Failed to start retention scheduler: {str(e)}")
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    logger.info("Shutting down background services...")
+    retention_service.stop_retention_scheduler()
