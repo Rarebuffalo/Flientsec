@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, DateTime, ForeignKey, Integer, Index, text
+    Column, String, DateTime, ForeignKey, Integer, Index, Boolean, text
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, validates
@@ -322,11 +322,11 @@ class Event(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id = Column(
-        UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("devices.id"), nullable=True
     )
     type = Column(
         String, nullable=False
-    )  # VIOLATION_TRIGGERED / VIOLATION_RESOLVED
+    )  # VIOLATION_TRIGGERED / VIOLATION_RESOLVED / POLICY_ROLLBACK
     rule_name = Column(String, nullable=False)
     message = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -340,3 +340,47 @@ class Event(Base):
     device = relationship("Device", back_populates="events")
     finding = relationship("Finding")
     policy_version = relationship("PolicyVersion")
+
+
+class Webhook(Base):
+    __tablename__ = "webhooks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    name = Column(String, nullable=False)
+    endpoint_url = Column(String, nullable=False)
+    signing_secret = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    events = Column(
+        String, default="[\"VIOLATION_TRIGGERED\", \"VIOLATION_RESOLVED\"]", nullable=False
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    organization = relationship("Organization")
+    deliveries = relationship(
+        "WebhookDelivery", back_populates="webhook", cascade="all, delete-orphan"
+    )
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    webhook_id = Column(
+        UUID(as_uuid=True), ForeignKey("webhooks.id"), nullable=False, index=True
+    )
+    event_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    event_type = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # SUCCESS / FAILED / RETRYING
+    attempt_count = Column(Integer, default=1, nullable=False)
+    response_status_code = Column(Integer, nullable=True)
+    error_message = Column(String, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    webhook = relationship("Webhook", back_populates="deliveries")
