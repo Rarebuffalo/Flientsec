@@ -506,8 +506,8 @@ export default function PolicyManager() {
 
       {/* POLICY ROLLBACK CONFIRMATION MODAL */}
       {targetRollbackVersion && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="panel max-w-lg w-full p-6 space-y-5 bg-[#0F172A] border border-amber-500/40 shadow-2xl rounded-xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="panel max-w-lg w-full p-6 space-y-5 bg-surface-1 border border-amber-500/40 shadow-2xl rounded-xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center space-x-2 text-amber-400">
               <History className="h-5 w-5" />
               <h3 className="text-base font-semibold text-text-primary">Confirm Safe Policy Rollback</h3>
@@ -523,12 +523,12 @@ export default function PolicyManager() {
               </p>
             </div>
 
-            <div className="text-xs text-text-muted space-y-2 bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-              <div className="flex justify-between py-1 border-b border-slate-800">
+            <div className="text-xs text-text-muted space-y-2 bg-surface-2 p-3 rounded-lg border border-border">
+              <div className="flex justify-between py-1 border-b border-border-soft">
                 <span>Current Active Standard:</span>
                 <span className="font-semibold text-text-primary">v{activeVersionNumber}</span>
               </div>
-              <div className="flex justify-between py-1 border-b border-slate-800">
+              <div className="flex justify-between py-1 border-b border-border-soft">
                 <span>Target Rollback Standard:</span>
                 <span className="font-semibold text-amber-400">v{targetRollbackVersion.version_number}</span>
               </div>
@@ -542,7 +542,7 @@ export default function PolicyManager() {
               Connected agents will automatically fetch Version {targetRollbackVersion.version_number} on their next check-in. An audit event and webhook alert will be recorded.
             </p>
 
-            <div className="flex justify-end space-x-2.5 pt-2 border-t border-slate-800">
+            <div className="flex justify-end space-x-2.5 pt-2 border-t border-border">
               <button
                 type="button"
                 onClick={() => setTargetRollbackVersion(null)}

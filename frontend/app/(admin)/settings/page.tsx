@@ -576,9 +576,9 @@ export default function SettingsPage() {
 
       {/* CREATE WEBHOOK MODAL */}
       {showAddWebhook && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="panel max-w-lg w-full p-6 space-y-5 bg-[#0F172A] border border-slate-700 shadow-2xl rounded-xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="panel max-w-lg w-full p-6 space-y-5 bg-surface-1 border border-border shadow-2xl rounded-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-border-soft pb-3">
               <div>
                 <h3 className="text-base font-semibold text-text-primary">Add Outbound Webhook</h3>
                 <p className="text-xs text-text-muted mt-0.5">Receive signed security events in real time.</p>
@@ -608,7 +608,7 @@ export default function SettingsPage() {
                   placeholder="e.g. Splunk SIEM Alerting"
                   value={newHookName}
                   onChange={(e) => setNewHookName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-text-primary focus:outline-none focus:border-brand"
+                  className="w-full px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-brand"
                   required
                 />
               </div>
@@ -622,7 +622,7 @@ export default function SettingsPage() {
                   placeholder="https://siem.corp.internal/flientsec-webhook"
                   value={newHookUrl}
                   onChange={(e) => setNewHookUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm font-mono text-text-primary focus:outline-none focus:border-brand"
+                  className="w-full px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm font-mono text-text-primary focus:outline-none focus:border-brand"
                   required
                 />
                 <p className="text-[11px] text-text-muted mt-1">
@@ -651,7 +651,7 @@ export default function SettingsPage() {
                             setNewHookEvents(newHookEvents.filter((ev) => ev !== item.id))
                           }
                         }}
-                        className="mt-0.5 rounded border-slate-700 text-brand focus:ring-0"
+                        className="mt-0.5 rounded border-border bg-surface-2 text-brand focus:ring-0"
                       />
                       <div>
                         <div className="font-mono text-text-primary font-medium">{item.label}</div>
@@ -668,14 +668,14 @@ export default function SettingsPage() {
                   id="hookEnabled"
                   checked={newHookEnabled}
                   onChange={(e) => setNewHookEnabled(e.target.checked)}
-                  className="rounded border-slate-700 text-brand focus:ring-0"
+                  className="rounded border-border bg-surface-2 text-brand focus:ring-0"
                 />
                 <label htmlFor="hookEnabled" className="text-xs text-text-secondary cursor-pointer">
                   Enable immediately upon creation
                 </label>
               </div>
 
-              <div className="flex justify-end space-x-2.5 pt-3 border-t border-slate-700/60">
+              <div className="flex justify-end space-x-2.5 pt-3 border-t border-border-soft">
                 <button
                   type="button"
                   onClick={() => setShowAddWebhook(false)}
@@ -698,8 +698,8 @@ export default function SettingsPage() {
 
       {/* REVEAL-ONCE SIGNING SECRET MODAL */}
       {revealSecret && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="panel max-w-lg w-full p-6 space-y-4 bg-[#0F172A] border border-brand/50 shadow-2xl rounded-xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="panel max-w-lg w-full p-6 space-y-4 bg-surface-1 border border-brand/40 shadow-2xl rounded-xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center space-x-2 text-brand">
               <Key className="h-5 w-5" />
               <h3 className="text-base font-semibold text-text-primary">Webhook Signing Secret</h3>
@@ -714,7 +714,7 @@ export default function SettingsPage() {
 
             <div>
               <div className="text-xs text-text-muted mb-1">Secret for <b>{revealHookName}</b>:</div>
-              <div className="flex items-center justify-between p-3 bg-slate-900 border border-slate-700 rounded-lg font-mono text-xs text-brand break-all select-all">
+              <div className="flex items-center justify-between p-3 bg-surface-2 border border-border rounded-lg font-mono text-xs text-brand break-all select-all">
                 <span>{revealSecret}</span>
                 <button
                   onClick={() => copyToClipboard(revealSecret, "Secret copied to clipboard")}
