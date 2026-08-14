@@ -343,6 +343,7 @@ export function AppShell({
       </SidebarSection>
 
       <SidebarSection title="Posture">
+        <SidebarLink href="/compliance" label="Compliance" icon={ShieldCheck} />
         <SidebarLink href="/devices" label="Devices" icon={Server} />
         <SidebarLink href="/findings" label="Findings" icon={Shield} />
         <SidebarLink href="/activity" label="Activity" icon={Activity} />
