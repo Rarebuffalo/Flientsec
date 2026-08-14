@@ -375,30 +375,23 @@ export function AppShell({
 
   return (
     <div className="dark min-h-screen bg-bg text-text-primary font-sans antialiased selection:bg-brand selection:text-bg">
+      {/* Mobile Top Bar */}
+      <div className="mobile-topbar">
+        <button onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
+          <Menu className="h-5 w-5" />
+        </button>
+        <span style={{ fontWeight: 700, fontSize: "14px" }}>FlientSec</span>
+      </div>
+
+      {/* Mobile Drawer Backdrop */}
+      <div
+        onClick={() => setMobileOpen(false)}
+        className={`sidebar-scrim ${mobileOpen ? 'open' : ''}`}
+      />
+
       <div className="app">
-        {/* Desktop Sidebar (Persistent) */}
-        <aside className="hidden lg:flex sidebar">
-          {sidebarContent}
-        </aside>
-
-        {/* Mobile Top Bar */}
-        <div className="mobile-topbar lg:hidden">
-          <button onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
-            <Menu className="h-5 w-5" />
-          </button>
-          <span style={{ fontWeight: 700, fontSize: "14px" }}>FlientSec</span>
-        </div>
-
-        {/* Mobile Drawer Backdrop */}
-        <div
-          onClick={() => setMobileOpen(false)}
-          className={`sidebar-scrim ${mobileOpen ? 'open' : ''}`}
-        />
-
-        {/* Mobile Drawer Sidebar */}
-        <aside className={`sidebar lg:hidden fixed top-0 bottom-0 left-0 transition-transform duration-200 ${
-          mobileOpen ? "open" : "-translate-x-full"
-        }`}>
+        {/* Unified Sidebar */}
+        <aside className={`sidebar ${mobileOpen ? 'open' : ''}`}>
           {sidebarContent}
         </aside>
 
