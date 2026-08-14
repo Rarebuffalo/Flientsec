@@ -267,7 +267,7 @@ class CheckRun(Base):
     device_id = Column(
         UUID(as_uuid=True), ForeignKey("devices.id"), nullable=False
     )
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     status = Column(String, nullable=False)  # PASS / FAIL / WARN
     score = Column(Integer, nullable=False)  # 0 to 100
     policy_version_id = Column(
