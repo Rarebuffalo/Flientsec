@@ -4,20 +4,61 @@ import uuid
 import yaml
 import json
 import hashlib
+import secrets
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core import security
 from app.models import models
 from app.schemas import schemas
+from app.services import webhook_service
 
 router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+
+
+def dispatch_webhooks_for_event(db: Session, org_id: uuid.UUID, event_data: dict):
+    try:
+        webhooks = (
+            db.query(models.Webhook)
+            .filter(
+                models.Webhook.organization_id == org_id,
+                models.Webhook.enabled.is_(True),
+            )
+            .all()
+        )
+        if not webhooks:
+            return
+
+        evt_type = event_data.get("type")
+        evt_id = event_data.get("id")
+        payload = event_data.get("payload")
+
+        for wh in webhooks:
+            try:
+                sub_events = (
+                    json.loads(wh.events)
+                    if isinstance(wh.events, str)
+                    else wh.events
+                )
+            except Exception:
+                sub_events = ["VIOLATION_TRIGGERED", "VIOLATION_RESOLVED"]
+            if evt_type in sub_events:
+                webhook_service.deliver_webhook_sync(
+                    db=db,
+                    webhook_id=wh.id,
+                    event_id=evt_id,
+                    event_type=evt_type,
+                    payload_dict=payload,
+                )
+    except Exception:
+        pass
 
 
 # Helper to fetch current user from JWT token
@@ -341,6 +382,7 @@ def agent_checkin(
     db: Session = Depends(get_db),
 ):
     device = verify_device_token(device_uuid, x_device_token, db)
+    events_to_dispatch = []
 
     # 1. Idempotency Check
     existing_run = (
@@ -557,8 +599,10 @@ def agent_checkin(
                 db.add(finding)
                 db.flush()  # Populates finding.id for event ForeignKey
 
+                event_id = uuid.uuid4()
                 # Trigger Event
                 event = models.Event(
+                    id=event_id,
                     device_id=device.id,
                     type="VIOLATION_TRIGGERED",
                     rule_name=rule_id,
@@ -568,6 +612,30 @@ def agent_checkin(
                     policy_version_id=version.id
                 )
                 db.add(event)
+                events_to_dispatch.append({
+                    "id": event_id,
+                    "type": "VIOLATION_TRIGGERED",
+                    "payload": {
+                        "id": str(event_id),
+                        "type": "VIOLATION_TRIGGERED",
+                        "version": "1",
+                        "timestamp": event.timestamp.isoformat(),
+                        "organization_id": str(device.organization_id),
+                        "device": {
+                            "id": str(device.id),
+                            "hostname": device.hostname,
+                            "os_name": device.os_name,
+                            "os_version": device.os_version,
+                        },
+                        "finding": {
+                            "id": str(finding.id),
+                            "rule_id": rule_id,
+                            "severity": f_in.severity,
+                            "status": "OPEN",
+                            "reason": f_in.reason,
+                        }
+                    }
+                })
 
         # Process resolved and removed rules
         open_findings = (
@@ -583,6 +651,7 @@ def agent_checkin(
         for f in open_findings:
             rule_id = f.rule_id
             if rule_id not in new_failed_rules:
+                event_id = uuid.uuid4()
                 # Determine if rule was evaluated or removed
                 if rule_id in evaluated_rules:
                     # Evaluated but did not fail -> REMEDIATED
@@ -591,6 +660,7 @@ def agent_checkin(
                     f.resolution_reason = "REMEDIATED"
 
                     event = models.Event(
+                        id=event_id,
                         device_id=device.id,
                         type="VIOLATION_RESOLVED",
                         rule_name=rule_id,
@@ -610,6 +680,7 @@ def agent_checkin(
                     f.resolution_reason = "POLICY_RULE_REMOVED"
 
                     event = models.Event(
+                        id=event_id,
                         device_id=device.id,
                         type="VIOLATION_RESOLVED",
                         rule_name=rule_id,
@@ -623,6 +694,31 @@ def agent_checkin(
                     )
                     db.add(event)
 
+                events_to_dispatch.append({
+                    "id": event_id,
+                    "type": "VIOLATION_RESOLVED",
+                    "payload": {
+                        "id": str(event_id),
+                        "type": "VIOLATION_RESOLVED",
+                        "version": "1",
+                        "timestamp": event.timestamp.isoformat(),
+                        "organization_id": str(device.organization_id),
+                        "device": {
+                            "id": str(device.id),
+                            "hostname": device.hostname,
+                            "os_name": device.os_name,
+                            "os_version": device.os_version,
+                        },
+                        "finding": {
+                            "id": str(f.id),
+                            "rule_id": rule_id,
+                            "severity": f.severity,
+                            "status": "RESOLVED",
+                            "reason": f.resolution_reason,
+                        }
+                    }
+                })
+
     # 5. Update Device stats
     device.status = "ONLINE"
     device.compliance_status = checkrun_in.status
@@ -631,6 +727,11 @@ def agent_checkin(
 
     db.commit()
     db.refresh(check_run)
+
+    # Dispatch webhooks after transaction commits safely
+    for evt_info in events_to_dispatch:
+        dispatch_webhooks_for_event(db, device.organization_id, evt_info)
+
     return check_run
 
 
@@ -1393,7 +1494,145 @@ def activate_policy_version(
     except Exception:
         policy.rules_yaml = ""
 
+    policy.active_version_number = version.version_number
     return policy
+
+
+@router.post(
+    "/policies/{policy_id}/rollback",
+    response_model=schemas.PolicyRollbackResponse,
+)
+def rollback_policy_version(
+    policy_id: uuid.UUID,
+    target_version_id: uuid.UUID = Query(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policy = (
+        db.query(models.Policy)
+        .filter(
+            models.Policy.id == policy_id,
+            models.Policy.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    target_version = (
+        db.query(models.PolicyVersion)
+        .filter(models.PolicyVersion.id == target_version_id)
+        .first()
+    )
+    if not target_version:
+        raise HTTPException(
+            status_code=404, detail="Target policy version not found"
+        )
+
+    # Invariants validation:
+    # 1. Target version belongs to this policy
+    if target_version.policy_id != policy.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Target version does not belong to this policy",
+        )
+
+    # 2. Target version must be PUBLISHED (cannot rollback to DRAFT)
+    if target_version.status != "PUBLISHED":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot rollback to a draft policy version",
+        )
+
+    # 3. Target version cannot already be the active version
+    if policy.active_version_id == target_version.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Target version is already the active version",
+        )
+
+    # 4. Validate JSON definition
+    try:
+        rules_dict = json.loads(target_version.definition_json)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Target version definition is corrupt or invalid JSON",
+        )
+
+    prev_version_id = policy.active_version_id
+    prev_version = (
+        db.query(models.PolicyVersion)
+        .filter(models.PolicyVersion.id == prev_version_id)
+        .first()
+        if prev_version_id
+        else None
+    )
+    prev_version_number = prev_version.version_number if prev_version else None
+
+    # Update active version reference (Zero historical content mutation)
+    policy.active_version_id = target_version.id
+    policy.rules_yaml = yaml.dump(rules_dict, default_flow_style=False)
+
+    # Create Audit Event
+    event_id = uuid.uuid4()
+    audit_event = models.Event(
+        id=event_id,
+        device_id=None,
+        type="POLICY_ROLLBACK",
+        rule_name="policy.active_version",
+        message=(
+            f"Policy '{policy.name}' rolled back from version "
+            f"{prev_version_number or 'None'} to version "
+            f"{target_version.version_number} by {current_user.email}."
+        ),
+        timestamp=datetime.utcnow(),
+        finding_id=None,
+        policy_version_id=target_version.id,
+    )
+    db.add(audit_event)
+    db.commit()
+
+    # Webhook dispatch for POLICY_ROLLBACK
+    rollback_payload = {
+        "id": str(event_id),
+        "type": "POLICY_ROLLBACK",
+        "version": "1",
+        "timestamp": datetime.utcnow().isoformat(),
+        "organization_id": str(policy.organization_id),
+        "policy": {
+            "id": str(policy.id),
+            "name": policy.name,
+            "previous_version_number": prev_version_number,
+            "active_version_number": target_version.version_number,
+        },
+        "actor": {
+            "id": str(current_user.id),
+            "email": current_user.email,
+        },
+    }
+    dispatch_webhooks_for_event(
+        db,
+        policy.organization_id,
+        {
+            "id": event_id,
+            "type": "POLICY_ROLLBACK",
+            "payload": rollback_payload,
+        },
+    )
+
+    return schemas.PolicyRollbackResponse(
+        status="success",
+        policy_id=policy.id,
+        previous_active_version_id=prev_version_id,
+        active_version_id=target_version.id,
+        active_version_number=target_version.version_number,
+        message=(
+            f"Successfully rolled back policy '{policy.name}' to "
+            f"version v{target_version.version_number}."
+        ),
+    )
 
 
 @router.post(
@@ -1982,9 +2221,8 @@ def get_fleet_events(
     """
     memberships = [m.organization_id for m in current_user.memberships]
 
-    # Model Invariant: Device is the authoritative tenant boundary (Device.organization_id).
-    # Joined metadata (Policy, PolicyVersion) is resolved strictly relative to events
-    # which are matched to Devices inside the tenant's organization list.
+    # Model Invariant: Tenant boundary matches either the Device organization
+    # or the Policy organization for system-level audit events (such as POLICY_ROLLBACK).
     query = (
         db.query(
             models.Event,
@@ -1992,10 +2230,15 @@ def get_fleet_events(
             models.Policy.name,
             models.PolicyVersion.version_number
         )
-        .join(models.Device, models.Event.device_id == models.Device.id)
+        .outerjoin(models.Device, models.Event.device_id == models.Device.id)
         .outerjoin(models.PolicyVersion, models.Event.policy_version_id == models.PolicyVersion.id)
         .outerjoin(models.Policy, models.PolicyVersion.policy_id == models.Policy.id)
-        .filter(models.Device.organization_id.in_(memberships))
+        .filter(
+            or_(
+                models.Device.organization_id.in_(memberships),
+                models.Policy.organization_id.in_(memberships)
+            )
+        )
     )
 
     # Apply filters using AND logic (intersection)
@@ -2098,3 +2341,326 @@ def cleanup_checkruns(
         "retention_days": retention_days,
         "cutoff_timestamp": cutoff_timestamp.isoformat()
     }
+
+
+# ==============================================================================
+# Webhook APIs (Phase 7)
+# ==============================================================================
+
+@router.post("/webhooks", response_model=schemas.WebhookCreatedResponse)
+def create_webhook(
+    webhook_in: schemas.WebhookCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    if not memberships:
+        raise HTTPException(
+            status_code=400, detail="User has no organization membership"
+        )
+    org_id = memberships[0]
+
+    # SSRF Protection
+    is_valid, err_msg = webhook_service.validate_webhook_url(
+        webhook_in.endpoint_url
+    )
+    if not is_valid:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid webhook URL: {err_msg}"
+        )
+
+    # Generate cryptographically secure secret (32 bytes hex)
+    secret = secrets.token_hex(32)
+
+    # Validate subscribed events
+    allowed_events = {
+        "VIOLATION_TRIGGERED",
+        "VIOLATION_RESOLVED",
+        "POLICY_ROLLBACK",
+    }
+    events_list = webhook_in.events or [
+        "VIOLATION_TRIGGERED",
+        "VIOLATION_RESOLVED",
+    ]
+    for e in events_list:
+        if e not in allowed_events:
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported event type: {e}"
+            )
+
+    webhook = models.Webhook(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        name=webhook_in.name,
+        endpoint_url=webhook_in.endpoint_url,
+        signing_secret=secret,
+        enabled=webhook_in.enabled if webhook_in.enabled is not None else True,
+        events=json.dumps(events_list),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(webhook)
+    db.commit()
+    db.refresh(webhook)
+
+    return schemas.WebhookCreatedResponse(
+        id=webhook.id,
+        organization_id=webhook.organization_id,
+        name=webhook.name,
+        endpoint_url=webhook.endpoint_url,
+        signing_secret=secret,  # Only returned once on creation
+        enabled=webhook.enabled,
+        events=json.loads(webhook.events),
+        created_at=webhook.created_at,
+        updated_at=webhook.updated_at,
+    )
+
+
+@router.get("/webhooks", response_model=List[schemas.WebhookResponse])
+def list_webhooks(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    webhooks = (
+        db.query(models.Webhook)
+        .filter(models.Webhook.organization_id.in_(memberships))
+        .order_by(models.Webhook.created_at.desc())
+        .all()
+    )
+    res = []
+    for w in webhooks:
+        try:
+            evts = json.loads(w.events)
+        except Exception:
+            evts = ["VIOLATION_TRIGGERED", "VIOLATION_RESOLVED"]
+        res.append(
+            schemas.WebhookResponse(
+                id=w.id,
+                organization_id=w.organization_id,
+                name=w.name,
+                endpoint_url=w.endpoint_url,
+                enabled=w.enabled,
+                events=evts,
+                created_at=w.created_at,
+                updated_at=w.updated_at,
+            )
+        )
+    return res
+
+
+@router.get(
+    "/webhooks/{webhook_id}", response_model=schemas.WebhookDetailResponse
+)
+def get_webhook_detail(
+    webhook_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    webhook = (
+        db.query(models.Webhook)
+        .filter(
+            models.Webhook.id == webhook_id,
+            models.Webhook.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    deliveries = (
+        db.query(models.WebhookDelivery)
+        .filter(models.WebhookDelivery.webhook_id == webhook.id)
+        .order_by(models.WebhookDelivery.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    try:
+        evts = json.loads(webhook.events)
+    except Exception:
+        evts = ["VIOLATION_TRIGGERED", "VIOLATION_RESOLVED"]
+
+    delivery_items = [
+        schemas.WebhookDeliveryResponse(
+            id=d.id,
+            webhook_id=d.webhook_id,
+            event_id=d.event_id,
+            event_type=d.event_type,
+            status=d.status,
+            attempt_count=d.attempt_count,
+            response_status_code=d.response_status_code,
+            error_message=d.error_message,
+            delivered_at=d.delivered_at,
+            created_at=d.created_at,
+        )
+        for d in deliveries
+    ]
+
+    return schemas.WebhookDetailResponse(
+        id=webhook.id,
+        organization_id=webhook.organization_id,
+        name=webhook.name,
+        endpoint_url=webhook.endpoint_url,
+        enabled=webhook.enabled,
+        events=evts,
+        created_at=webhook.created_at,
+        updated_at=webhook.updated_at,
+        recent_deliveries=delivery_items,
+    )
+
+
+@router.patch(
+    "/webhooks/{webhook_id}", response_model=schemas.WebhookResponse
+)
+def update_webhook(
+    webhook_id: uuid.UUID,
+    webhook_in: schemas.WebhookUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    webhook = (
+        db.query(models.Webhook)
+        .filter(
+            models.Webhook.id == webhook_id,
+            models.Webhook.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    if webhook_in.endpoint_url is not None:
+        is_valid, err_msg = webhook_service.validate_webhook_url(
+            webhook_in.endpoint_url
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid webhook URL: {err_msg}"
+            )
+        webhook.endpoint_url = webhook_in.endpoint_url
+
+    if webhook_in.name is not None:
+        webhook.name = webhook_in.name
+
+    if webhook_in.enabled is not None:
+        webhook.enabled = webhook_in.enabled
+
+    if webhook_in.events is not None:
+        allowed_events = {
+            "VIOLATION_TRIGGERED",
+            "VIOLATION_RESOLVED",
+            "POLICY_ROLLBACK",
+        }
+        for e in webhook_in.events:
+            if e not in allowed_events:
+                raise HTTPException(
+                    status_code=400, detail=f"Unsupported event type: {e}"
+                )
+        webhook.events = json.dumps(webhook_in.events)
+
+    webhook.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(webhook)
+
+    try:
+        evts = json.loads(webhook.events)
+    except Exception:
+        evts = ["VIOLATION_TRIGGERED", "VIOLATION_RESOLVED"]
+
+    return schemas.WebhookResponse(
+        id=webhook.id,
+        organization_id=webhook.organization_id,
+        name=webhook.name,
+        endpoint_url=webhook.endpoint_url,
+        enabled=webhook.enabled,
+        events=evts,
+        created_at=webhook.created_at,
+        updated_at=webhook.updated_at,
+    )
+
+
+@router.delete("/webhooks/{webhook_id}")
+def delete_webhook(
+    webhook_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    webhook = (
+        db.query(models.Webhook)
+        .filter(
+            models.Webhook.id == webhook_id,
+            models.Webhook.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    db.delete(webhook)
+    db.commit()
+    return {"status": "deleted", "id": str(webhook_id)}
+
+
+@router.post(
+    "/webhooks/{webhook_id}/test",
+    response_model=schemas.WebhookDeliveryResponse,
+)
+def test_webhook(
+    webhook_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    webhook = (
+        db.query(models.Webhook)
+        .filter(
+            models.Webhook.id == webhook_id,
+            models.Webhook.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    test_event_id = uuid.uuid4()
+    test_payload = {
+        "id": str(test_event_id),
+        "type": "TEST_EVENT",
+        "version": "1",
+        "timestamp": datetime.utcnow().isoformat(),
+        "organization_id": str(webhook.organization_id),
+        "message": (
+            f"FlientSec integration test event for webhook '{webhook.name}'."
+        ),
+    }
+
+    delivery = webhook_service.deliver_webhook_sync(
+        db=db,
+        webhook_id=webhook.id,
+        event_id=test_event_id,
+        event_type="TEST_EVENT",
+        payload_dict=test_payload,
+        max_retries=1,
+    )
+    if not delivery:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to initiate test webhook delivery",
+        )
+
+    return schemas.WebhookDeliveryResponse(
+        id=delivery.id,
+        webhook_id=delivery.webhook_id,
+        event_id=delivery.event_id,
+        event_type=delivery.event_type,
+        status=delivery.status,
+        attempt_count=delivery.attempt_count,
+        response_status_code=delivery.response_status_code,
+        error_message=delivery.error_message,
+        delivered_at=delivery.delivered_at,
+        created_at=delivery.created_at,
+    )
