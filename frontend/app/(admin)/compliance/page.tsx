@@ -293,7 +293,7 @@ export default function CompliancePage() {
 
       {/* 2. Standard Compliance Controls Breakdown */}
       <div className="panel overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-border-soft flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <Layers className="h-5 w-5 text-brand" />
             <div>
@@ -306,20 +306,20 @@ export default function CompliancePage() {
           </span>
         </div>
 
-        <div className="table-wrap">
+        <div className="overflow-x-auto">
           <table>
             <thead>
               <tr>
-                <th style={{ width: "12%" }}>Control ID</th>
-                <th style={{ width: "26%" }}>Control Name</th>
-                <th style={{ width: "13%" }}>Category</th>
-                <th style={{ width: "9%" }}>Severity</th>
-                <th style={{ width: "16%" }}>Mapped Rule</th>
-                <th style={{ width: "7%" }}>Passing</th>
-                <th style={{ width: "7%" }}>Failing</th>
-                <th style={{ width: "10%" }}>Score</th>
-                <th style={{ width: "10%" }}>Status</th>
-                <th style={{ width: "8%" }} className="text-right">Action</th>
+                <th className="w-[120px]">Control ID</th>
+                <th className="min-w-[200px]">Control Name</th>
+                <th className="w-[130px]">Category</th>
+                <th className="w-[90px]">Severity</th>
+                <th className="w-[150px]">Mapped Rule</th>
+                <th className="w-[80px] text-center">Passing</th>
+                <th className="w-[80px] text-center">Failing</th>
+                <th className="w-[110px] text-center">Score</th>
+                <th className="w-[110px] text-center">Status</th>
+                <th className="w-[90px] text-right">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -328,7 +328,7 @@ export default function CompliancePage() {
                 const score = ctrl.compliance_percentage ?? 0
                 return (
                   <tr key={ctrl.control_id} className="hover:bg-surface-2/40 transition-colors">
-                    <td className="font-mono font-bold text-brand text-xs">
+                    <td className="font-mono font-bold text-brand text-xs whitespace-nowrap">
                       {ctrl.control_id}
                     </td>
                     <td>
@@ -342,14 +342,14 @@ export default function CompliancePage() {
                     <td className="font-mono text-[11px] text-text-muted truncate max-w-[150px]" title={ctrl.mapped_rule_id}>
                       {ctrl.mapped_rule_id}
                     </td>
-                    <td className="font-mono text-xs text-brand font-semibold">
+                    <td className="text-center font-mono text-xs text-brand font-semibold">
                       {ctrl.passed_devices ?? 0}
                     </td>
-                    <td className={`font-mono text-xs font-semibold ${(ctrl.failed_devices ?? 0) > 0 ? "text-danger" : "text-text-muted"}`}>
+                    <td className={`text-center font-mono text-xs font-semibold ${(ctrl.failed_devices ?? 0) > 0 ? "text-danger" : "text-text-muted"}`}>
                       {ctrl.failed_devices ?? 0}
                     </td>
-                    <td>
-                      <div className="flex items-center space-x-2">
+                    <td className="text-center">
+                      <div className="inline-flex items-center space-x-2">
                         <div className="w-12 bg-surface-2 rounded-full h-1.5 overflow-hidden">
                           <div
                             className={`h-full ${score >= 80 ? "bg-brand" : score >= 50 ? "bg-amber-400" : "bg-danger"}`}
@@ -359,7 +359,7 @@ export default function CompliancePage() {
                         <span className="font-mono text-xs font-bold text-text-primary">{score}%</span>
                       </div>
                     </td>
-                    <td>
+                    <td className="text-center">
                       <span className={`badge ${isPassing ? "badge-compliant" : "badge-failing"}`}>
                         <span className="dot"></span>
                         {isPassing ? "Compliant" : "Violations"}
@@ -383,7 +383,7 @@ export default function CompliancePage() {
 
       {/* 3. Tamper-Evident Evidence Audit Trail */}
       <div className="panel overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="px-5 py-4 border-b border-border-soft flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center space-x-2.5">
             <FileCheck className="h-5 w-5 text-brand" />
             <div>
@@ -401,14 +401,14 @@ export default function CompliancePage() {
                 placeholder="Search host or hash..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="input input-sm pl-8 text-xs w-48 bg-surface-2"
+                className="input input-sm pl-8 text-xs w-48 bg-surface-2 border-border-soft"
               />
             </div>
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="select select-sm text-xs bg-surface-2 border border-border"
+              className="select select-sm text-xs bg-surface-2 border border-border-soft"
             >
               <option value="ALL">All Statuses</option>
               <option value="PASS">Pass Only</option>
@@ -418,7 +418,7 @@ export default function CompliancePage() {
             <select
               value={controlFilter}
               onChange={(e) => setControlFilter(e.target.value)}
-              className="select select-sm text-xs bg-surface-2 border border-border"
+              className="select select-sm text-xs bg-surface-2 border border-border-soft"
             >
               <option value="ALL">All Controls</option>
               <option value="FLIENT-001">FLIENT-001 (Firewall)</option>
@@ -429,18 +429,18 @@ export default function CompliancePage() {
           </div>
         </div>
 
-        <div className="table-wrap">
+        <div className="overflow-x-auto">
           <table>
             <thead>
               <tr>
-                <th style={{ width: "16%" }}>Evaluated At</th>
-                <th style={{ width: "14%" }}>Device</th>
-                <th style={{ width: "10%" }}>Control ID</th>
-                <th style={{ width: "14%" }}>Rule ID</th>
-                <th style={{ width: "9%" }}>Status</th>
-                <th style={{ width: "8%" }}>Severity</th>
-                <th style={{ width: "15%" }}>Observed Result</th>
-                <th style={{ width: "14%" }}>Evidence SHA-256 Hash</th>
+                <th className="w-[180px]">Evaluated At</th>
+                <th className="w-[140px]">Device</th>
+                <th className="w-[110px]">Control ID</th>
+                <th className="w-[160px]">Rule ID</th>
+                <th className="w-[90px] text-center">Status</th>
+                <th className="w-[90px] text-center">Severity</th>
+                <th className="min-w-[180px]">Observed Result</th>
+                <th className="w-[160px] text-right">Evidence SHA-256 Hash</th>
               </tr>
             </thead>
             <tbody>
@@ -487,21 +487,21 @@ export default function CompliancePage() {
                     <td className="font-mono text-[11px] text-text-muted truncate max-w-[140px]" title={ev.rule_id}>
                       {ev.rule_id}
                     </td>
-                    <td>
+                    <td className="text-center">
                       <span className={`badge ${ev.status === "PASS" ? "badge-compliant" : "badge-failing"}`}>
                         <span className="dot"></span>
                         {ev.status}
                       </span>
                     </td>
-                    <td>
+                    <td className="text-center">
                       <SeverityBadge severity={ev.severity} />
                     </td>
                     <td className="font-mono text-[11px] text-text-muted truncate max-w-xs" title={ev.observed_result}>
                       {ev.observed_result}
                     </td>
-                    <td>
-                      <div className="flex items-center space-x-1.5 font-mono text-[11px] text-brand">
-                        <span title={ev.evidence_hash} className="truncate max-w-[120px]">
+                    <td className="text-right">
+                      <div className="inline-flex items-center space-x-1.5 font-mono text-[11px] text-brand">
+                        <span title={ev.evidence_hash} className="truncate max-w-[110px]">
                           {ev.evidence_hash.substring(0, 16)}...
                         </span>
                         <button
@@ -524,7 +524,7 @@ export default function CompliancePage() {
           </table>
         </div>
 
-        <div className="px-5 py-3 border-t border-border flex items-center justify-between text-xs text-text-muted">
+        <div className="px-5 py-3 border-t border-border-soft flex items-center justify-between text-xs text-text-muted">
           <span>Showing {filteredEvidence.length} of {evidenceTotal} total evidence records</span>
           <span className="font-mono">Audit Window: 90 Days</span>
         </div>
