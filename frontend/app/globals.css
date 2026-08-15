@@ -765,9 +765,14 @@ hr.divider {
 
 /* ---------- Table ---------- */
 .table-wrap {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
+}
+
+.panel > .table-wrap {
+  border: none;
+  border-radius: 0;
 }
 
 table {
@@ -784,7 +789,7 @@ thead th {
   color: var(--text-muted);
   padding: 11px 16px;
   background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   white-space: nowrap;
 }
 
