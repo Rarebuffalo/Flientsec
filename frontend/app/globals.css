@@ -1159,11 +1159,14 @@ tbody tr.clickable:hover {
   width: 100vw !important;
   height: 100vh !important;
   height: 100dvh !important;
-  background: rgba(4, 6, 5, 0.75) !important;
+  background: rgba(0, 0, 0, 0.7) !important;
   opacity: 0;
   pointer-events: none;
   transition: opacity .18s ease;
-  z-index: 9998 !important;
+  z-index: 99998 !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .drawer-scrim.open {
@@ -1179,15 +1182,20 @@ tbody tr.clickable:hover {
   height: 100vh !important;
   height: 100dvh !important;
   width: 440px;
-  max-width: 94vw;
+  max-width: 100vw;
   background: var(--surface-1) !important;
   border-left: 1px solid var(--border);
+  border-top: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  margin: 0 !important;
   transform: translateX(100%);
   transition: transform .22s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 9999 !important;
+  z-index: 99999 !important;
   display: flex;
   flex-direction: column;
-  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.7);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.8);
+  outline: none !important;
 }
 
 .drawer.open {
@@ -1197,10 +1205,12 @@ tbody tr.clickable:hover {
 .drawer-head {
   padding: 20px 22px;
   border-bottom: 1px solid var(--border);
+  border-top: none !important;
+  margin: 0 !important;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  background: var(--surface-1);
+  background: var(--surface-1) !important;
   flex-shrink: 0;
 }
 
