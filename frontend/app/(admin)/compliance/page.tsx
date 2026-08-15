@@ -31,17 +31,17 @@ interface ComplianceSummary {
 }
 
 interface ControlPosture {
-  id: string
+  id?: string
   control_id: string
   name: string
   description: string
   category: string
   severity: string
   mapped_rule_id: string
-  passing_devices: number
-  failing_devices: number
-  total_applicable_devices: number
-  compliance_score: number
+  passed_devices: number
+  failed_devices: number
+  unknown_devices?: number
+  compliance_percentage: number
   status: string
 }
 
@@ -302,7 +302,7 @@ export default function CompliancePage() {
             </div>
           </div>
           <span className="text-xs font-mono text-text-muted">
-            {controls.filter((c) => c.status === "COMPLIANT").length} of {controls.length} Passing
+            {controls.filter((c) => c.status === "PASS" || c.status === "COMPLIANT").length} of {controls.length} Passing
           </span>
         </div>
 
@@ -323,55 +323,59 @@ export default function CompliancePage() {
               </tr>
             </thead>
             <tbody>
-              {controls.map((ctrl) => (
-                <tr key={ctrl.control_id} className="hover:bg-surface-2/40 transition-colors">
-                  <td className="font-mono font-bold text-brand text-xs">
-                    {ctrl.control_id}
-                  </td>
-                  <td>
-                    <div className="font-semibold text-text-primary text-xs">{ctrl.name}</div>
-                    <div className="text-[11px] text-text-muted truncate max-w-xs" title={ctrl.description}>{ctrl.description}</div>
-                  </td>
-                  <td className="text-xs text-text-secondary whitespace-nowrap">{ctrl.category}</td>
-                  <td>
-                    <SeverityBadge severity={ctrl.severity} />
-                  </td>
-                  <td className="font-mono text-[11px] text-text-muted truncate max-w-[150px]" title={ctrl.mapped_rule_id}>
-                    {ctrl.mapped_rule_id}
-                  </td>
-                  <td className="font-mono text-xs text-brand font-semibold">
-                    {ctrl.passing_devices}
-                  </td>
-                  <td className={`font-mono text-xs font-semibold ${ctrl.failing_devices > 0 ? "text-danger" : "text-text-muted"}`}>
-                    {ctrl.failing_devices}
-                  </td>
-                  <td>
-                    <div className="flex items-center space-x-2">
-                      <div className="w-12 bg-surface-2 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className={`h-full ${ctrl.compliance_score >= 80 ? "bg-brand" : ctrl.compliance_score >= 50 ? "bg-amber-400" : "bg-danger"}`}
-                          style={{ width: `${ctrl.compliance_score}%` }}
-                        />
+              {controls.map((ctrl) => {
+                const isPassing = ctrl.status === "PASS" || ctrl.status === "COMPLIANT"
+                const score = ctrl.compliance_percentage ?? 0
+                return (
+                  <tr key={ctrl.control_id} className="hover:bg-surface-2/40 transition-colors">
+                    <td className="font-mono font-bold text-brand text-xs">
+                      {ctrl.control_id}
+                    </td>
+                    <td>
+                      <div className="font-semibold text-text-primary text-xs">{ctrl.name}</div>
+                      <div className="text-[11px] text-text-muted truncate max-w-xs" title={ctrl.description}>{ctrl.description}</div>
+                    </td>
+                    <td className="text-xs text-text-secondary whitespace-nowrap">{ctrl.category}</td>
+                    <td>
+                      <SeverityBadge severity={ctrl.severity} />
+                    </td>
+                    <td className="font-mono text-[11px] text-text-muted truncate max-w-[150px]" title={ctrl.mapped_rule_id}>
+                      {ctrl.mapped_rule_id}
+                    </td>
+                    <td className="font-mono text-xs text-brand font-semibold">
+                      {ctrl.passed_devices ?? 0}
+                    </td>
+                    <td className={`font-mono text-xs font-semibold ${(ctrl.failed_devices ?? 0) > 0 ? "text-danger" : "text-text-muted"}`}>
+                      {ctrl.failed_devices ?? 0}
+                    </td>
+                    <td>
+                      <div className="flex items-center space-x-2">
+                        <div className="w-12 bg-surface-2 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-full ${score >= 80 ? "bg-brand" : score >= 50 ? "bg-amber-400" : "bg-danger"}`}
+                            style={{ width: `${score}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-xs font-bold text-text-primary">{score}%</span>
                       </div>
-                      <span className="font-mono text-xs font-bold text-text-primary">{ctrl.compliance_score}%</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`badge ${ctrl.status === "COMPLIANT" ? "badge-compliant" : "badge-failing"}`}>
-                      <span className="dot"></span>
-                      {ctrl.status === "COMPLIANT" ? "Compliant" : "Violations"}
-                    </span>
-                  </td>
-                  <td className="text-right">
-                    <button
-                      onClick={() => openControlModal(ctrl.control_id)}
-                      className="btn btn-ghost btn-xs text-brand hover:text-white"
-                    >
-                      Inspect
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <span className={`badge ${isPassing ? "badge-compliant" : "badge-failing"}`}>
+                        <span className="dot"></span>
+                        {isPassing ? "Compliant" : "Violations"}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <button
+                        onClick={() => openControlModal(ctrl.control_id)}
+                        className="btn btn-ghost btn-xs text-brand hover:text-white"
+                      >
+                        Inspect
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
