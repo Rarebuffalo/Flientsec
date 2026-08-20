@@ -36,7 +36,7 @@ class MemberResponse(BaseModel):
         from_attributes = True
 
 
-# Organization Schemas
+# Organization & Team Schemas
 class OrganizationResponse(BaseModel):
     id: UUID
     name: str
@@ -44,6 +44,49 @@ class OrganizationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OrganizationProfileResponse(BaseModel):
+    id: UUID
+    name: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    member_count: int
+    device_count: int = 0
+    policy_count: int = 0
+    current_user_role: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class OrganizationProfileUpdate(BaseModel):
+    name: str
+
+
+class OrganizationMemberResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    email: EmailStr
+    role: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class OrganizationMemberListResponse(BaseModel):
+    items: List[OrganizationMemberResponse]
+    total: int
+
+
+class OrganizationMemberCreate(BaseModel):
+    email: EmailStr
+    role: str
+
+
+class OrganizationMemberUpdate(BaseModel):
+    role: str
 
 
 # Device Schemas
@@ -273,6 +316,10 @@ class EventTypeEnum(str, Enum):
     FINDING_REMEDIATION_STARTED = "FINDING_REMEDIATION_STARTED"
     FINDING_WAIVED = "FINDING_WAIVED"
     FINDING_WAIVER_EXPIRED = "FINDING_WAIVER_EXPIRED"
+    MEMBER_ADDED = "MEMBER_ADDED"
+    MEMBER_ROLE_CHANGED = "MEMBER_ROLE_CHANGED"
+    MEMBER_REMOVED = "MEMBER_REMOVED"
+    ORGANIZATION_UPDATED = "ORGANIZATION_UPDATED"
 
 
 class FindingRemediationRequest(BaseModel):
