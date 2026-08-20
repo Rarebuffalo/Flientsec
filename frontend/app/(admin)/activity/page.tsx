@@ -7,7 +7,14 @@ import {
   PageHeader, LoadingState, EmptyState
 } from "../../../components/ui"
 
-type EventType = "VIOLATION_TRIGGERED" | "VIOLATION_RESOLVED" | "POLICY_ROLLBACK"
+type EventType =
+  | "VIOLATION_TRIGGERED"
+  | "VIOLATION_RESOLVED"
+  | "POLICY_ROLLBACK"
+  | "FINDING_ACKNOWLEDGED"
+  | "FINDING_REMEDIATION_STARTED"
+  | "FINDING_WAIVED"
+  | "FINDING_WAIVER_EXPIRED"
 
 interface FleetEvent {
   id: string
@@ -182,6 +189,10 @@ export default function ActivityPage() {
           <option value="ALL">All event types</option>
           <option value="VIOLATION_TRIGGERED">Violation triggered</option>
           <option value="VIOLATION_RESOLVED">Violation resolved</option>
+          <option value="FINDING_ACKNOWLEDGED">Finding acknowledged</option>
+          <option value="FINDING_REMEDIATION_STARTED">Remediation started</option>
+          <option value="FINDING_WAIVED">Waiver granted</option>
+          <option value="FINDING_WAIVER_EXPIRED">Waiver expired</option>
           <option value="POLICY_ROLLBACK">Policy rollback</option>
         </select>
 
@@ -228,29 +239,58 @@ export default function ActivityPage() {
         <div className="space-y-6">
           <div className="event-list">
             {events.map((e) => {
-              const isRollback = e.type === "POLICY_ROLLBACK"
               const isTrigger = e.type === "VIOLATION_TRIGGERED"
+              const isResolve = e.type === "VIOLATION_RESOLVED"
+              const isAck = e.type === "FINDING_ACKNOWLEDGED"
+              const isRem = e.type === "FINDING_REMEDIATION_STARTED"
+              const isWaived = e.type === "FINDING_WAIVED"
+              const isWaiverExpired = e.type === "FINDING_WAIVER_EXPIRED"
+              const isRollback = e.type === "POLICY_ROLLBACK"
+
+              const getDotColor = () => {
+                if (isTrigger || isWaiverExpired) return "trigger"
+                if (isResolve) return "resolve"
+                if (isAck) return "bg-amber-400"
+                if (isRem) return "bg-sky-400"
+                if (isWaived) return "bg-purple-400"
+                if (isRollback) return "bg-amber-400"
+                return "bg-neutral-400"
+              }
+
+              const getTitle = () => {
+                if (isTrigger) return "Violation triggered"
+                if (isResolve) return "Violation resolved"
+                if (isAck) return "Finding acknowledged"
+                if (isRem) return "Remediation initiated"
+                if (isWaived) return "Waiver exception granted"
+                if (isWaiverExpired) return "Waiver expired (re-opened)"
+                if (isRollback) return "Policy standard rolled back"
+                return e.type
+              }
+
               return (
                 <div key={e.id} className="event-item">
                   <div className="event-row">
                     <div className="event-dot-outer">
                       <div
-                        className={`event-dot ${isTrigger ? "trigger" : isRollback ? "bg-amber-400" : "resolve"}`}
-                        style={isRollback ? { backgroundColor: "#F59E0B" } : undefined}
+                        className={`event-dot ${getDotColor()}`}
+                        style={
+                          isAck ? { backgroundColor: "#F59E0B" } :
+                          isRem ? { backgroundColor: "#38BDF8" } :
+                          isWaived ? { backgroundColor: "#C084FC" } :
+                          isRollback ? { backgroundColor: "#F59E0B" } :
+                          undefined
+                        }
                       />
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div className="event-title">
-                        {isRollback
-                          ? "Policy standard rolled back"
-                          : isTrigger
-                          ? "Violation triggered"
-                          : "Violation resolved"}
+                      <div className="event-title font-semibold">
+                        {getTitle()}
                       </div>
-                      <div className="event-msg">
+                      <div className="event-msg text-xs text-text-secondary mt-0.5">
                         {e.device_hostname ? `${e.device_hostname} · ` : ""}{e.message}
                       </div>
-                      <div className="event-meta">
+                      <div className="event-meta text-[11px] text-text-muted mt-1.5">
                         <span className="mono">{e.rule_name}</span>
                         <span>{e.policy_name || "Baseline Policy"} · v{e.policy_version_number || 1}</span>
                         <span>{getRelativeTime(e.timestamp)}</span>

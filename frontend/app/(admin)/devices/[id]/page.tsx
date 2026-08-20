@@ -30,7 +30,7 @@ interface Finding {
   rule_id: string
   check_name: string
   severity: "HIGH" | "MEDIUM" | "LOW"
-  status: "OPEN" | "RESOLVED"
+  status: "OPEN" | "ACKNOWLEDGED" | "IN_REMEDIATION" | "WAIVED" | "RESOLVED"
   reason: string | null
   resolution_reason: string | null
   drift_type: "DEVICE_DRIFT" | "POLICY_CHANGE_NON_COMPLIANCE" | null
@@ -140,7 +140,40 @@ export default function DeviceDetails() {
 
   // Finding inspection drawer states
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null)
+  const [findingDetail, setFindingDetail] = useState<any | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [selectedOsTab, setSelectedOsTab] = useState(0)
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null)
+
+  const handleRowClick = async (finding: Finding) => {
+    setSelectedFinding(finding)
+    setDrawerOpen(true)
+    setFindingDetail(null)
+    setSelectedOsTab(0)
+    try {
+      setLoadingDetail(true)
+      const token = localStorage.getItem("flientsec_token")
+      if (!token) return
+      const res = await fetch(`${apiUrl}/api/v1/findings/${finding.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setFindingDetail(data)
+      }
+    } catch {
+      // fallback to basic finding
+    } finally {
+      setLoadingDetail(false)
+    }
+  }
+
+  const handleCopyCmd = (text: string, key: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedCmd(key)
+    setTimeout(() => setCopiedCmd(null), 2000)
+  }
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -182,8 +215,8 @@ export default function DeviceDetails() {
           setLatestRun(runData)
         }
 
-        // Fetch Open Findings
-        const openFindingsRes = await fetch(`${apiUrl}/api/v1/devices/${deviceId}/findings?status=OPEN&limit=100`, { headers })
+        // Fetch Active (Non-Resolved) Findings
+        const openFindingsRes = await fetch(`${apiUrl}/api/v1/devices/${deviceId}/findings?status=ACTIVE&limit=100`, { headers })
         if (openFindingsRes.ok) {
           const openFindingsData = await openFindingsRes.json()
           setOpenFindings(openFindingsData)
@@ -307,11 +340,6 @@ export default function DeviceDetails() {
   })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
   const formattedLastSeen = getRelativeTime(device.last_checkin)
-
-  const handleRowClick = (finding: Finding) => {
-    setSelectedFinding(finding)
-    setDrawerOpen(true)
-  }
 
   return (
     <div className="space-y-8 flex-1 flex flex-col font-sans">
@@ -500,6 +528,15 @@ export default function DeviceDetails() {
               </div>
             ) : (
               <table>
+                <thead>
+                  <tr>
+                    <th>Finding</th>
+                    <th>Severity</th>
+                    <th>Status</th>
+                    <th>Classification</th>
+                    <th>Detected</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {openFindings.map((finding) => (
                     <tr
@@ -507,8 +544,8 @@ export default function DeviceDetails() {
                       onClick={() => handleRowClick(finding)}
                       className="clickable"
                     >
-                      <td data-label="Finding" style={{ width: "38%" }}>
-                        <div className="cell-primary">{finding.check_name}</div>
+                      <td data-label="Finding" style={{ width: "34%" }}>
+                        <div className="cell-primary font-semibold">{finding.check_name}</div>
                         <div className="cell-sub mono">{finding.rule_id}</div>
                       </td>
                       <td data-label="Severity">
@@ -516,12 +553,25 @@ export default function DeviceDetails() {
                           {finding.severity}
                         </span>
                       </td>
+                      <td data-label="Status">
+                        {finding.status === "OPEN" ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-danger/10 text-danger border border-danger/25">OPEN</span>
+                        ) : finding.status === "ACKNOWLEDGED" ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/25">ACKNOWLEDGED</span>
+                        ) : finding.status === "IN_REMEDIATION" ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/25">IN REMEDIATION</span>
+                        ) : finding.status === "WAIVED" ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/25">WAIVED</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-brand/10 text-brand border border-brand/25">RESOLVED</span>
+                        )}
+                      </td>
                       <td data-label="Classification">
                         <span className={`class-pill ${finding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "policy" : "drift"}`}>
                           {finding.drift_type === "POLICY_CHANGE_NON_COMPLIANCE" ? "Policy change" : "Device drift"}
                         </span>
                       </td>
-                      <td data-label="Detected" className="muted">
+                      <td data-label="Detected" className="muted text-xs">
                         {getRelativeTime(finding.first_detected_at)}
                       </td>
                     </tr>
@@ -754,53 +804,139 @@ export default function DeviceDetails() {
           </button>
         </div>
 
-        <div className="drawer-body">
+        <div className="drawer-body space-y-6">
           {selectedFinding && (
             <>
-              <div className="kv">
-                <div className="k">Workstation</div>
-                <div className="v">{device.hostname}</div>
-              </div>
-              <div className="kv">
-                <div className="k">Rule</div>
-                <div className="v mono">{selectedFinding.rule_id}</div>
-              </div>
-              <div className="kv">
-                <div className="k">Classification</div>
-                <div className="v mono">{selectedFinding.drift_type || "DEVICE_DRIFT"}</div>
-              </div>
-              <div className="kv">
-                <div className="k">Status</div>
-                <div className="v">{selectedFinding.status === "OPEN" ? "Open" : "Resolved"}</div>
-              </div>
-              <div className="kv">
-                <div className="k">Reason</div>
-                <div className="v" style={{ textAlign: "right", maxWidth: "220px" }}>
-                  {selectedFinding.reason || "No extra failure details available."}
-                </div>
-              </div>
-              <div className="kv">
-                <div className="k">First detected</div>
-                <div className="v">{getRelativeTime(selectedFinding.first_detected_at)}</div>
-              </div>
-              {selectedFinding.last_detected_at && (
+              {/* Key metadata */}
+              <div className="panel p-4 space-y-2 border border-border/80 bg-surface-2/40">
                 <div className="kv">
-                  <div className="k">Last detected</div>
-                  <div className="v">{getRelativeTime(selectedFinding.last_detected_at)}</div>
+                  <div className="k">Workstation</div>
+                  <div className="v font-semibold text-text-primary">{device.hostname}</div>
                 </div>
-              )}
-              {selectedFinding.status === "RESOLVED" && (
-                <>
-                  <div className="kv">
-                    <div className="k">Resolved</div>
-                    <div className="v">{getRelativeTime(selectedFinding.resolved_at)}</div>
+                <div className="kv">
+                  <div className="k">Rule Identifier</div>
+                  <div className="v mono text-xs">{selectedFinding.rule_id}</div>
+                </div>
+                <div className="kv">
+                  <div className="k">Observed State</div>
+                  <div className="v text-xs text-danger max-w-[280px] text-right">
+                    {selectedFinding.reason || "Control requirements not satisfied"}
                   </div>
-                  <div className="kv">
-                    <div className="k">Resolution reason</div>
-                    <div className="v mono">{selectedFinding.resolution_reason || "REMEDIATED"}</div>
+                </div>
+              </div>
+
+              {/* Authoritative Remediation Guidance if loaded */}
+              {loadingDetail ? (
+                <LoadingState message="Loading remediation instructions..." />
+              ) : findingDetail?.guidance ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-text-primary flex items-center gap-2">
+                      Remediation Guidance
+                    </h4>
+                    <span className="text-[11px] text-text-muted">Copyable Guidance</span>
                   </div>
-                </>
-              )}
+
+                  <div className="p-3.5 rounded-lg bg-surface-1 border border-border/70 text-xs text-text-secondary leading-relaxed space-y-2">
+                    <div>
+                      <b className="text-text-primary block mb-0.5">Why this matters:</b>
+                      {findingDetail.guidance.why_it_matters}
+                    </div>
+                    {findingDetail.guidance.expected_state && (
+                      <div className="pt-1.5 border-t border-border/50">
+                        <b className="text-brand block mb-0.5">Expected Baseline State:</b>
+                        {findingDetail.guidance.expected_state}
+                      </div>
+                    )}
+                  </div>
+
+                  {findingDetail.guidance.os_guidance?.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex border-b border-border text-xs gap-4">
+                        {findingDetail.guidance.os_guidance.map((g: any, idx: number) => (
+                          <button
+                            key={g.os_name}
+                            onClick={() => setSelectedOsTab(idx)}
+                            className={`pb-2 font-medium transition-colors ${selectedOsTab === idx ? "border-b-2 border-brand text-brand" : "text-text-secondary hover:text-text-primary"}`}
+                          >
+                            {g.os_name}
+                          </button>
+                        ))}
+                      </div>
+
+                      {findingDetail.guidance.os_guidance[selectedOsTab] && (
+                        <div className="space-y-3">
+                          <div>
+                            <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+                              <span>Recommended Remediation Command:</span>
+                              <button
+                                onClick={() => handleCopyCmd(findingDetail.guidance.os_guidance[selectedOsTab].remediation_cmd, "dev_rem")}
+                                className="text-brand hover:underline flex items-center gap-1 text-[11px]"
+                              >
+                                {copiedCmd === "dev_rem" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                {copiedCmd === "dev_rem" ? "Copied" : "Copy Command"}
+                              </button>
+                            </div>
+                            <div className="bg-[#0B0D0C] border border-border p-3 rounded-lg font-mono text-xs text-text-primary select-all break-all">
+                              {findingDetail.guidance.os_guidance[selectedOsTab].remediation_cmd}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+                              <span>Local Verification Command:</span>
+                              <button
+                                onClick={() => handleCopyCmd(findingDetail.guidance.os_guidance[selectedOsTab].verification_cmd, "dev_ver")}
+                                className="text-brand hover:underline flex items-center gap-1 text-[11px]"
+                              >
+                                {copiedCmd === "dev_ver" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                {copiedCmd === "dev_ver" ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                            <div className="bg-[#0B0D0C] border border-border p-2.5 rounded-lg font-mono text-xs text-text-secondary select-all break-all">
+                              {findingDetail.guidance.os_guidance[selectedOsTab].verification_cmd}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="p-3 rounded-lg border border-brand/20 bg-brand/5 flex items-start gap-2.5 text-xs text-text-secondary">
+                    <ShieldCheck className="h-4 w-4 text-brand shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold text-text-primary">Evidence-Driven Verification: </span>
+                      {findingDetail.guidance.automated_verification_note}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Lifecycle history */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <div className="kv">
+                  <div className="k">First detected</div>
+                  <div className="v text-xs">{getRelativeTime(selectedFinding.first_detected_at)}</div>
+                </div>
+                {selectedFinding.last_detected_at && (
+                  <div className="kv">
+                    <div className="k">Last detected</div>
+                    <div className="v text-xs">{getRelativeTime(selectedFinding.last_detected_at)}</div>
+                  </div>
+                )}
+                {selectedFinding.status === "RESOLVED" && (
+                  <>
+                    <div className="kv">
+                      <div className="k">Resolved</div>
+                      <div className="v text-xs">{getRelativeTime(selectedFinding.resolved_at)}</div>
+                    </div>
+                    <div className="kv">
+                      <div className="k">Resolution reason</div>
+                      <div className="v mono text-xs">{selectedFinding.resolution_reason || "REMEDIATED"}</div>
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>
