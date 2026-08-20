@@ -293,7 +293,7 @@ class Finding(Base):
     rule_id = Column(String, nullable=False)
     check_name = Column(String, nullable=False)
     severity = Column(String, default="medium")  # high, medium, low
-    status = Column(String, default="OPEN", nullable=False)  # OPEN, RESOLVED
+    status = Column(String, default="OPEN", nullable=False)  # OPEN, ACKNOWLEDGED, IN_REMEDIATION, WAIVED, RESOLVED
     reason = Column(String, nullable=True)
     resolution_reason = Column(String, nullable=True)
     drift_type = Column(String, nullable=True)
@@ -302,8 +302,30 @@ class Finding(Base):
     last_detected_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
 
+    # Phase 9 Remediation & Waiver Lifecycle
+    acknowledged_at = Column(DateTime, nullable=True)
+    acknowledged_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    remediation_started_at = Column(DateTime, nullable=True)
+    remediation_started_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    remediation_note = Column(String, nullable=True)
+    waived_at = Column(DateTime, nullable=True)
+    waived_by_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    waiver_reason = Column(String, nullable=True)
+    waiver_expires_at = Column(DateTime, nullable=True)
+    waiver_owner = Column(String, nullable=True)
+    waiver_ticket_id = Column(String, nullable=True)
+
     device = relationship("Device", back_populates="findings")
     policy = relationship("Policy")
+    acknowledged_by = relationship("User", foreign_keys=[acknowledged_by_id])
+    remediation_started_by = relationship("User", foreign_keys=[remediation_started_by_id])
+    waived_by = relationship("User", foreign_keys=[waived_by_id])
 
     __table_args__ = (
         Index(
@@ -312,7 +334,7 @@ class Finding(Base):
             "policy_id",
             "rule_id",
             unique=True,
-            postgresql_where=text("status = 'OPEN'"),
+            postgresql_where=text("status != 'RESOLVED'"),
         ),
     )
 

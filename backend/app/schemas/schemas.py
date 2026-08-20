@@ -244,9 +244,12 @@ class AgentPolicyResponse(BaseModel):
         from_attributes = True
 
 
-# Fleet Findings & Events Schemas (Phase 4A)
+# Fleet Findings & Events Schemas (Phase 4A & Phase 9)
 class FindingStatusEnum(str, Enum):
     OPEN = "OPEN"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    IN_REMEDIATION = "IN_REMEDIATION"
+    WAIVED = "WAIVED"
     RESOLVED = "RESOLVED"
 
 
@@ -266,6 +269,38 @@ class EventTypeEnum(str, Enum):
     VIOLATION_RESOLVED = "VIOLATION_RESOLVED"
     POLICY_ROLLBACK = "POLICY_ROLLBACK"
     TEST_EVENT = "TEST_EVENT"
+    FINDING_ACKNOWLEDGED = "FINDING_ACKNOWLEDGED"
+    FINDING_REMEDIATION_STARTED = "FINDING_REMEDIATION_STARTED"
+    FINDING_WAIVED = "FINDING_WAIVED"
+    FINDING_WAIVER_EXPIRED = "FINDING_WAIVER_EXPIRED"
+
+
+class FindingRemediationRequest(BaseModel):
+    note: Optional[str] = None
+
+
+class FindingWaiverRequest(BaseModel):
+    reason: str
+    expires_at: datetime
+    owner: Optional[str] = None
+    ticket_id: Optional[str] = None
+
+
+class RemediationCommandGuidance(BaseModel):
+    os_name: str
+    remediation_cmd: str
+    verification_cmd: str
+    notes: Optional[str] = None
+
+
+class RemediationGuidanceResponse(BaseModel):
+    rule_id: str
+    title: str
+    why_it_matters: str
+    expected_state: str
+    observed_state: str
+    os_guidance: List[RemediationCommandGuidance]
+    automated_verification_note: str
 
 
 class FleetFindingResponse(BaseModel):
@@ -284,6 +319,19 @@ class FleetFindingResponse(BaseModel):
     first_detected_at: datetime
     last_detected_at: datetime
     resolved_at: Optional[datetime] = None
+
+    # Lifecycle tracking (Phase 9)
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by_id: Optional[UUID] = None
+    remediation_started_at: Optional[datetime] = None
+    remediation_started_by_id: Optional[UUID] = None
+    remediation_note: Optional[str] = None
+    waived_at: Optional[datetime] = None
+    waived_by_id: Optional[UUID] = None
+    waiver_reason: Optional[str] = None
+    waiver_expires_at: Optional[datetime] = None
+    waiver_owner: Optional[str] = None
+    waiver_ticket_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -318,6 +366,25 @@ class FleetEventListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class FleetFindingDetailResponse(FleetFindingResponse):
+    acknowledged_by_email: Optional[str] = None
+    remediation_started_by_email: Optional[str] = None
+    waived_by_email: Optional[str] = None
+    guidance: Optional[RemediationGuidanceResponse] = None
+    events: List[FleetEventResponse] = []
+
+
+class FleetFindingSummaryResponse(BaseModel):
+    open_count: int
+    critical_high_count: int
+    in_remediation_count: int
+    acknowledged_count: int
+    waived_count: int
+    resolved_recent_count: int
+    resolved_count: Optional[int] = None
+    total: int
 
 
 # Webhook Schemas (Phase 7)
