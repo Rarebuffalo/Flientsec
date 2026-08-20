@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.core import security
 from app.models import models
 from app.schemas import schemas
-from app.services import webhook_service, compliance_service
+from app.services import webhook_service, compliance_service, remediation_service
 
 router = APIRouter()
 
@@ -521,34 +521,85 @@ def agent_checkin(
 
         # Extract evaluated rules from the policy version JSON/YAML
         import json as py_json
+        evaluated_rules = {}
         try:
             policy_data = py_json.loads(version.definition_json)
-            rules_list = policy_data.get("rules", [])
+            if isinstance(policy_data, dict):
+                if "checks" in policy_data and isinstance(policy_data["checks"], dict):
+                    for k, v in policy_data["checks"].items():
+                        evaluated_rules[k] = v if isinstance(v, dict) else {"id": k}
+                if "rules" in policy_data and isinstance(policy_data["rules"], list):
+                    for r in policy_data["rules"]:
+                        if isinstance(r, dict) and r.get("id"):
+                            evaluated_rules[r.get("id")] = r
         except Exception:
-            rules_list = []
-
-        # Dict mapping rule_id -> parsed rule configuration dict
-        evaluated_rules = {r.get("id"): r for r in rules_list if r.get("id")}
+            evaluated_rules = {}
 
         # Process reported failures
         new_failed_rules = set()
         for f_in in checkrun_in.findings:
+            if f_in.status.upper() not in ["FAIL", "FAILED"]:
+                continue
             rule_id = f_in.rule_id
             new_failed_rules.add(rule_id)
 
-            # Query existing active OPEN finding
+            # Query existing active non-resolved finding
             finding = (
                 db.query(models.Finding)
                 .filter(
                     models.Finding.device_id == device.id,
                     models.Finding.policy_id == version.policy_id,
                     models.Finding.rule_id == rule_id,
-                    models.Finding.status == "OPEN",
+                    models.Finding.status != "RESOLVED",
                 )
                 .first()
             )
 
             if finding:
+                # Check for waiver expiry on re-check
+                if (
+                    finding.status == "WAIVED"
+                    and finding.waiver_expires_at
+                    and finding.waiver_expires_at <= datetime.utcnow()
+                ):
+                    finding.status = "OPEN"
+                    event_id = uuid.uuid4()
+                    exp_event = models.Event(
+                        id=event_id,
+                        device_id=device.id,
+                        type="FINDING_WAIVER_EXPIRED",
+                        rule_name=rule_id,
+                        message=f"Waiver expired for rule {rule_id}. Finding reactivated as OPEN.",
+                        timestamp=datetime.utcnow(),
+                        finding_id=finding.id,
+                        policy_version_id=version.id
+                    )
+                    db.add(exp_event)
+                    events_to_dispatch.append({
+                        "id": event_id,
+                        "type": "FINDING_WAIVER_EXPIRED",
+                        "payload": {
+                            "id": str(event_id),
+                            "type": "FINDING_WAIVER_EXPIRED",
+                            "version": "1",
+                            "timestamp": exp_event.timestamp.isoformat(),
+                            "organization_id": str(device.organization_id),
+                            "device": {
+                                "id": str(device.id),
+                                "hostname": device.hostname,
+                                "os_name": device.os_name,
+                                "os_version": device.os_version,
+                            },
+                            "finding": {
+                                "id": str(finding.id),
+                                "rule_id": rule_id,
+                                "severity": finding.severity,
+                                "status": "OPEN",
+                                "reason": f_in.reason,
+                            }
+                        }
+                    })
+
                 finding.last_detected_at = datetime.utcnow()
                 finding.reason = f_in.reason
             else:
@@ -666,18 +717,18 @@ def agent_checkin(
                     }
                 })
 
-        # Process resolved and removed rules
-        open_findings = (
+        # Process resolved and removed rules across all active non-resolved findings
+        active_findings = (
             db.query(models.Finding)
             .filter(
                 models.Finding.device_id == device.id,
                 models.Finding.policy_id == version.policy_id,
-                models.Finding.status == "OPEN",
+                models.Finding.status != "RESOLVED",
             )
             .all()
         )
 
-        for f in open_findings:
+        for f in active_findings:
             rule_id = f.rule_id
             if rule_id not in new_failed_rules:
                 event_id = uuid.uuid4()
@@ -1068,7 +1119,10 @@ def get_device_findings(
 
     query = db.query(models.Finding).filter(models.Finding.device_id == id)
     if status is not None:
-        query = query.filter(models.Finding.status == status)
+        if status.upper() == "ACTIVE":
+            query = query.filter(models.Finding.status != "RESOLVED")
+        else:
+            query = query.filter(models.Finding.status == status)
 
     return (
         query.order_by(models.Finding.created_at.desc())
@@ -1204,14 +1258,23 @@ def seed_default_policy(db: Session, admin_user: models.User) -> models.Policy:
                 },
             }
         }
+        def_json = json.dumps(default_rules)
+        c_hash = hashlib.sha256(def_json.encode('utf-8')).hexdigest()
         ver = models.PolicyVersion(
             policy_id=policy.id,
             version_number=1,
-            definition_json=json.dumps(default_rules),
+            definition_json=def_json,
+            content=def_json,
+            content_hash=c_hash,
+            status="PUBLISHED",
             created_by=admin_user.id,
         )
         db.add(ver)
         db.commit()
+        db.refresh(ver)
+        policy.active_version_id = ver.id
+        db.commit()
+        db.refresh(policy)
     return policy
 
 
@@ -1245,7 +1308,7 @@ def get_policies(
             .filter(models.User.email == "admin@flientsec.local")
             .first()
         )
-        policy = seed_default_policy(db, admin_user or current_user)
+        policy = seed_default_policy(db, current_user or admin_user)
 
     # Get latest version definition and serialize to YAML
     latest_version = (
@@ -2142,6 +2205,39 @@ def export_csv_report(
 # Fleet Findings & Fleet Events Read APIs (Phase 4A)
 # =====================================================================
 
+def build_fleet_finding_response(
+    finding: models.Finding, hostname: str, policy_name: Optional[str] = None
+) -> schemas.FleetFindingResponse:
+    return schemas.FleetFindingResponse(
+        id=finding.id,
+        device_id=finding.device_id,
+        device_hostname=hostname,
+        policy_id=finding.policy_id,
+        policy_name=policy_name,
+        rule_id=finding.rule_id,
+        check_name=finding.check_name,
+        severity=schemas.FindingSeverityEnum(finding.severity.upper()),
+        status=schemas.FindingStatusEnum(finding.status),
+        reason=finding.reason,
+        drift_type=schemas.FindingDriftTypeEnum(finding.drift_type) if finding.drift_type else None,
+        resolution_reason=finding.resolution_reason,
+        first_detected_at=finding.first_detected_at,
+        last_detected_at=finding.last_detected_at,
+        resolved_at=finding.resolved_at,
+        acknowledged_at=finding.acknowledged_at,
+        acknowledged_by_id=finding.acknowledged_by_id,
+        remediation_started_at=finding.remediation_started_at,
+        remediation_started_by_id=finding.remediation_started_by_id,
+        remediation_note=finding.remediation_note,
+        waived_at=finding.waived_at,
+        waived_by_id=finding.waived_by_id,
+        waiver_reason=finding.waiver_reason,
+        waiver_expires_at=finding.waiver_expires_at,
+        waiver_owner=finding.waiver_owner,
+        waiver_ticket_id=finding.waiver_ticket_id,
+    )
+
+
 @router.get("/findings", response_model=schemas.FleetFindingListResponse)
 def get_fleet_findings(
     status: Optional[schemas.FindingStatusEnum] = Query(None),
@@ -2161,13 +2257,6 @@ def get_fleet_findings(
     from sqlalchemy import case
     memberships = [m.organization_id for m in current_user.memberships]
 
-    # Model Invariant: Device is the authoritative tenant boundary (Device.organization_id).
-    # Findings and Events are child resources of Device, meaning their tenant-scoping is
-    # transitively governed by the Device they belong to. When joining Policy or PolicyVersion
-    # for display purposes, we outerjoin on standard FK relationships. Since the outer query
-    # strictly filters by models.Device.organization_id.in_(memberships), it is impossible
-    # for findings/events of other organizations to be queried, thus preventing any cross-organization
-    # policy leak.
     query = (
         db.query(models.Finding, models.Device.hostname, models.Policy.name)
         .join(models.Device, models.Finding.device_id == models.Device.id)
@@ -2184,7 +2273,6 @@ def get_fleet_findings(
         query = query.filter(models.Finding.status == status.value)
     if severity is not None:
         from sqlalchemy import func
-        # Perform case-insensitive comparison to handle legacy seed and mixed-case entries robustly
         query = query.filter(func.lower(models.Finding.severity) == severity.value.lower())
     if drift_type is not None:
         query = query.filter(models.Finding.drift_type == drift_type.value)
@@ -2193,12 +2281,12 @@ def get_fleet_findings(
     total = query.count()
 
     # Custom Operational Sorting:
-    # 1. OPEN before RESOLVED
-    # 2. HIGH before MEDIUM before LOW (DB strings compared case-insensitively, order weight reflects database values)
-    # 3. last_detected_at DESC (Observe most recently detected violations first)
-    # 4. id ASC (Deterministic pagination tie-breaker)
+    # 1. Active states (OPEN, ACKNOWLEDGED, IN_REMEDIATION, WAIVED) before RESOLVED
+    # 2. HIGH before MEDIUM before LOW
+    # 3. last_detected_at DESC
+    # 4. id ASC
     status_order = case(
-        (models.Finding.status == "OPEN", 0),
+        (models.Finding.status != "RESOLVED", 0),
         else_=1
     )
     from sqlalchemy import func
@@ -2216,30 +2304,12 @@ def get_fleet_findings(
         models.Finding.id.asc()
     )
 
-    # Paginate and execute SELECT
     query_results = query.offset(offset).limit(limit).all()
 
-    items = []
-    for finding, hostname, policy_name in query_results:
-        items.append(
-            schemas.FleetFindingResponse(
-                id=finding.id,
-                device_id=finding.device_id,
-                device_hostname=hostname,
-                policy_id=finding.policy_id,
-                policy_name=policy_name,
-                rule_id=finding.rule_id,
-                check_name=finding.check_name,
-                severity=schemas.FindingSeverityEnum(finding.severity.upper()),
-                status=schemas.FindingStatusEnum(finding.status),
-                reason=finding.reason,
-                drift_type=schemas.FindingDriftTypeEnum(finding.drift_type) if finding.drift_type else None,
-                resolution_reason=finding.resolution_reason,
-                first_detected_at=finding.first_detected_at,
-                last_detected_at=finding.last_detected_at,
-                resolved_at=finding.resolved_at
-            )
-        )
+    items = [
+        build_fleet_finding_response(finding, hostname, policy_name)
+        for finding, hostname, policy_name in query_results
+    ]
 
     return schemas.FleetFindingListResponse(
         items=items,
@@ -2247,6 +2317,383 @@ def get_fleet_findings(
         limit=limit,
         offset=offset
     )
+
+
+@router.get("/findings/summary", response_model=schemas.FleetFindingSummaryResponse)
+def get_findings_summary(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Returns fleet operational finding metrics for triage header bars.
+    """
+    memberships = [m.organization_id for m in current_user.memberships]
+    from datetime import timedelta
+    from sqlalchemy import func
+
+    base_q = (
+        db.query(models.Finding)
+        .join(models.Device, models.Finding.device_id == models.Device.id)
+        .filter(models.Device.organization_id.in_(memberships))
+    )
+
+    open_count = base_q.filter(models.Finding.status == "OPEN").count()
+    acknowledged_count = base_q.filter(models.Finding.status == "ACKNOWLEDGED").count()
+    in_remediation_count = base_q.filter(models.Finding.status == "IN_REMEDIATION").count()
+    waived_count = base_q.filter(models.Finding.status == "WAIVED").count()
+
+    critical_high_count = (
+        base_q.filter(
+            models.Finding.status.in_(["OPEN", "ACKNOWLEDGED", "IN_REMEDIATION"]),
+            func.lower(models.Finding.severity).in_(["high", "critical"])
+        ).count()
+    )
+
+    resolved_count = base_q.filter(models.Finding.status == "RESOLVED").count()
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    resolved_recent_count = (
+        base_q.filter(
+            models.Finding.status == "RESOLVED",
+            models.Finding.resolved_at >= seven_days_ago
+        ).count()
+    )
+
+    total = base_q.count()
+
+    return schemas.FleetFindingSummaryResponse(
+        open_count=open_count,
+        critical_high_count=critical_high_count,
+        in_remediation_count=in_remediation_count,
+        acknowledged_count=acknowledged_count,
+        waived_count=waived_count,
+        resolved_recent_count=resolved_recent_count,
+        resolved_count=resolved_count,
+        total=total
+    )
+
+
+@router.get("/findings/{id}", response_model=schemas.FleetFindingDetailResponse)
+def get_finding_detail(
+    id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Returns comprehensive finding detail including operator attribution,
+    structured OS-specific remediation guidance, and event history.
+    """
+    memberships = [m.organization_id for m in current_user.memberships]
+    finding = (
+        db.query(models.Finding)
+        .join(models.Device, models.Finding.device_id == models.Device.id)
+        .filter(
+            models.Finding.id == id,
+            models.Device.organization_id.in_(memberships)
+        )
+        .first()
+    )
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    device = finding.device
+    policy_name = finding.policy.name if finding.policy else None
+
+    # Associated events
+    events = (
+        db.query(models.Event)
+        .filter(models.Event.finding_id == finding.id)
+        .order_by(models.Event.timestamp.desc())
+        .all()
+    )
+    event_items = [
+        schemas.FleetEventResponse(
+            id=e.id,
+            type=schemas.EventTypeEnum(e.type),
+            timestamp=e.timestamp,
+            message=e.message,
+            rule_name=e.rule_name,
+            device_id=e.device_id,
+            finding_id=e.finding_id,
+            policy_version_id=e.policy_version_id,
+        )
+        for e in events
+    ]
+
+    # Authoritative remediation guidance
+    guidance = remediation_service.get_remediation_guidance(
+        rule_id=finding.rule_id,
+        check_name=finding.check_name,
+        observed_reason=finding.reason
+    )
+
+    base = build_fleet_finding_response(finding, device.hostname, policy_name)
+
+    return schemas.FleetFindingDetailResponse(
+        **base.model_dump(),
+        acknowledged_by_email=finding.acknowledged_by.email if finding.acknowledged_by else None,
+        remediation_started_by_email=finding.remediation_started_by.email if finding.remediation_started_by else None,
+        waived_by_email=finding.waived_by.email if finding.waived_by else None,
+        guidance=guidance,
+        events=event_items
+    )
+
+
+@router.post("/findings/{id}/acknowledge", response_model=schemas.FleetFindingResponse)
+def acknowledge_finding(
+    id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Acknowledges an active security finding without altering device posture.
+    """
+    memberships = [m.organization_id for m in current_user.memberships]
+    finding = (
+        db.query(models.Finding)
+        .join(models.Device, models.Finding.device_id == models.Device.id)
+        .filter(
+            models.Finding.id == id,
+            models.Device.organization_id.in_(memberships)
+        )
+        .first()
+    )
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    if finding.status == "RESOLVED":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot acknowledge an already resolved finding."
+        )
+
+    finding.status = "ACKNOWLEDGED"
+    finding.acknowledged_at = datetime.utcnow()
+    finding.acknowledged_by_id = current_user.id
+
+    event_id = uuid.uuid4()
+    event = models.Event(
+        id=event_id,
+        device_id=finding.device_id,
+        type="FINDING_ACKNOWLEDGED",
+        rule_name=finding.rule_id,
+        message=f"Finding for rule {finding.rule_id} acknowledged by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+        finding_id=finding.id,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(finding)
+
+    device = finding.device
+    dispatch_webhooks_for_event(
+        db=db,
+        org_id=device.organization_id,
+        event_data={
+            "id": event_id,
+            "type": "FINDING_ACKNOWLEDGED",
+            "payload": {
+                "id": str(event_id),
+                "type": "FINDING_ACKNOWLEDGED",
+                "version": "1",
+                "timestamp": event.timestamp.isoformat(),
+                "organization_id": str(device.organization_id),
+                "actor": {"id": str(current_user.id), "email": current_user.email},
+                "device": {"id": str(device.id), "hostname": device.hostname},
+                "finding": {"id": str(finding.id), "rule_id": finding.rule_id, "status": finding.status}
+            }
+        }
+    )
+
+    return build_fleet_finding_response(finding, device.hostname, finding.policy.name if finding.policy else None)
+
+
+@router.post("/findings/{id}/remediation", response_model=schemas.FleetFindingResponse)
+def start_finding_remediation(
+    id: uuid.UUID,
+    req: schemas.FindingRemediationRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Transitions an active finding to IN_REMEDIATION with optional operator note.
+    """
+    memberships = [m.organization_id for m in current_user.memberships]
+    finding = (
+        db.query(models.Finding)
+        .join(models.Device, models.Finding.device_id == models.Device.id)
+        .filter(
+            models.Finding.id == id,
+            models.Device.organization_id.in_(memberships)
+        )
+        .first()
+    )
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    if finding.status == "RESOLVED":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot mark an already resolved finding as in remediation."
+        )
+
+    finding.status = "IN_REMEDIATION"
+    finding.remediation_started_at = datetime.utcnow()
+    finding.remediation_started_by_id = current_user.id
+    if req.note:
+        finding.remediation_note = req.note.strip()
+
+    event_id = uuid.uuid4()
+    msg = f"Remediation started for rule {finding.rule_id} by {current_user.email}."
+    if req.note:
+        msg += f" Note: {req.note.strip()}"
+
+    event = models.Event(
+        id=event_id,
+        device_id=finding.device_id,
+        type="FINDING_REMEDIATION_STARTED",
+        rule_name=finding.rule_id,
+        message=msg,
+        timestamp=datetime.utcnow(),
+        finding_id=finding.id,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(finding)
+
+    device = finding.device
+    dispatch_webhooks_for_event(
+        db=db,
+        org_id=device.organization_id,
+        event_data={
+            "id": event_id,
+            "type": "FINDING_REMEDIATION_STARTED",
+            "payload": {
+                "id": str(event_id),
+                "type": "FINDING_REMEDIATION_STARTED",
+                "version": "1",
+                "timestamp": event.timestamp.isoformat(),
+                "organization_id": str(device.organization_id),
+                "actor": {"id": str(current_user.id), "email": current_user.email},
+                "device": {"id": str(device.id), "hostname": device.hostname},
+                "finding": {
+                    "id": str(finding.id),
+                    "rule_id": finding.rule_id,
+                    "status": finding.status,
+                    "note": finding.remediation_note
+                }
+            }
+        }
+    )
+
+    return build_fleet_finding_response(finding, device.hostname, finding.policy.name if finding.policy else None)
+
+
+@router.post("/findings/{id}/waive", response_model=schemas.FleetFindingResponse)
+def waive_finding(
+    id: uuid.UUID,
+    req: schemas.FindingWaiverRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Grants a time-bounded exception/waiver on an active finding with explicit justification.
+    """
+    if not req.reason or not req.reason.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Waiver reason is required and cannot be empty."
+        )
+
+    expires_at = req.expires_at
+    if expires_at.tzinfo is not None:
+        from datetime import timezone
+        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+
+    if expires_at <= datetime.utcnow():
+        raise HTTPException(
+            status_code=422,
+            detail="Waiver expiration date must be in the future."
+        )
+
+    memberships = [m.organization_id for m in current_user.memberships]
+    finding = (
+        db.query(models.Finding)
+        .join(models.Device, models.Finding.device_id == models.Device.id)
+        .filter(
+            models.Finding.id == id,
+            models.Device.organization_id.in_(memberships)
+        )
+        .first()
+    )
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    if finding.status == "RESOLVED":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot waive an already resolved finding."
+        )
+
+    finding.status = "WAIVED"
+    finding.waived_at = datetime.utcnow()
+    finding.waived_by_id = current_user.id
+    finding.waiver_reason = req.reason.strip()
+    finding.waiver_expires_at = expires_at
+    finding.waiver_owner = req.owner.strip() if req.owner else None
+    finding.waiver_ticket_id = req.ticket_id.strip() if req.ticket_id else None
+
+    event_id = uuid.uuid4()
+    exp_str = expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')
+    msg = (
+        f"Finding for rule {finding.rule_id} waived until {exp_str} by {current_user.email}. "
+        f"Reason: {finding.waiver_reason}"
+    )
+    if finding.waiver_ticket_id:
+        msg += f" (Ref: {finding.waiver_ticket_id})"
+
+    event = models.Event(
+        id=event_id,
+        device_id=finding.device_id,
+        type="FINDING_WAIVED",
+        rule_name=finding.rule_id,
+        message=msg,
+        timestamp=datetime.utcnow(),
+        finding_id=finding.id,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(finding)
+
+    device = finding.device
+    dispatch_webhooks_for_event(
+        db=db,
+        org_id=device.organization_id,
+        event_data={
+            "id": event_id,
+            "type": "FINDING_WAIVED",
+            "payload": {
+                "id": str(event_id),
+                "type": "FINDING_WAIVED",
+                "version": "1",
+                "timestamp": event.timestamp.isoformat(),
+                "organization_id": str(device.organization_id),
+                "actor": {"id": str(current_user.id), "email": current_user.email},
+                "device": {"id": str(device.id), "hostname": device.hostname},
+                "finding": {
+                    "id": str(finding.id),
+                    "rule_id": finding.rule_id,
+                    "status": finding.status,
+                    "reason": finding.waiver_reason,
+                    "expires_at": finding.waiver_expires_at.isoformat()
+                }
+            }
+        }
+    )
+
+    return build_fleet_finding_response(finding, device.hostname, finding.policy.name if finding.policy else None)
 
 
 @router.get("/events", response_model=schemas.FleetEventListResponse)
