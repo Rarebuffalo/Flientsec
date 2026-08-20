@@ -155,7 +155,7 @@ Execute the setup script as root to compile the agent, copy default rules to `/e
 sudo ./scripts/install.sh
 ```
 Check that the agent service starts successfully and starts logging handshake events:
-```bash
+```bashremove 
 journalctl -u flientsec-agent.service -f
 ```
 
