@@ -9,18 +9,17 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core import security
+from app.core.authorization import get_current_user, require_admin_or_owner, require_owner
 from app.models import models
 from app.schemas import schemas
 from app.services import webhook_service, compliance_service, remediation_service
 
 router = APIRouter()
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
 
 def dispatch_webhooks_for_event(db: Session, org_id: uuid.UUID, event_data: dict):
@@ -75,24 +74,6 @@ def dispatch_webhooks_background_worker(org_id: uuid.UUID, event_data: dict):
         pass
     finally:
         db.close()
-
-
-# Helper to fetch current user from JWT token
-def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
-) -> models.User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    email = security.decode_access_token(token)
-    if email is None:
-        raise credentials_exception
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if user is None:
-        raise credentials_exception
-    return user
 
 
 # Helper to fetch current user or device credentials
@@ -842,7 +823,7 @@ def list_enrollment_tokens(
 def create_enrollment_token(
     token_in: schemas.EnrollmentTokenCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     if not current_user.memberships:
         raise HTTPException(
@@ -873,7 +854,7 @@ def create_enrollment_token(
 def revoke_enrollment_token(
     id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     tok = (
@@ -964,7 +945,7 @@ def get_device(
 def decommission_device(
     id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     device = (
@@ -1342,7 +1323,7 @@ def get_policies(
 def update_policy(
     policy_in: schemas.PolicyUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     org = None
     if current_user.memberships:
@@ -1434,7 +1415,7 @@ def create_policy_version(
     id: uuid.UUID,
     rules_json: str,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     policy = (
@@ -1485,7 +1466,7 @@ def publish_policy_version(
     policy_id: uuid.UUID,
     version_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     policy = (
@@ -1538,7 +1519,7 @@ def activate_policy_version(
     policy_id: uuid.UUID,
     version_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     policy = (
@@ -1604,7 +1585,7 @@ def rollback_policy_version(
     background_tasks: BackgroundTasks,
     target_version_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     policy = (
@@ -1750,7 +1731,7 @@ def rollback_policy_version(
 def assign_default_policy(
     policy_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     policy = (
@@ -1846,7 +1827,7 @@ def assign_device_policy(
     policy_id: uuid.UUID,
     device_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     policy = (
@@ -2443,7 +2424,7 @@ def acknowledge_finding(
     id: uuid.UUID,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     """
     Acknowledges an active security finding without altering device posture.
@@ -2514,7 +2495,7 @@ def start_finding_remediation(
     req: schemas.FindingRemediationRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     """
     Transitions an active finding to IN_REMEDIATION with optional operator note.
@@ -2596,7 +2577,7 @@ def waive_finding(
     req: schemas.FindingWaiverRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     """
     Grants a time-bounded exception/waiver on an active finding with explicit justification.
@@ -2786,7 +2767,7 @@ def cleanup_checkruns(
     retention_days: int = Query(30, ge=1, le=365),
     batch_size: int = Query(1000, ge=1, le=10000),
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     cutoff_timestamp = datetime.utcnow() - timedelta(days=retention_days)
@@ -2843,7 +2824,7 @@ def cleanup_checkruns(
 def create_webhook(
     webhook_in: schemas.WebhookCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     if not memberships:
@@ -3010,7 +2991,7 @@ def update_webhook(
     webhook_id: uuid.UUID,
     webhook_in: schemas.WebhookUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     webhook = (
@@ -3078,7 +3059,7 @@ def update_webhook(
 def delete_webhook(
     webhook_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     webhook = (
@@ -3104,7 +3085,7 @@ def delete_webhook(
 def test_webhook(
     webhook_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(require_admin_or_owner),
 ):
     memberships = [m.organization_id for m in current_user.memberships]
     webhook = (
@@ -3333,3 +3314,450 @@ def get_fleet_evidence(
     return schemas.EvidenceListResponse(
         total=total, limit=limit, offset=offset, items=resp_items
     )
+
+
+# =====================================================================
+# Organization Profile & Team Administration APIs (Phase 10.2)
+# =====================================================================
+
+@router.get("/org/profile", response_model=schemas.OrganizationProfileResponse)
+def get_organization_profile(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Returns the organization profile and high-level resource counts for the authenticated user.
+    Accessible to all authenticated members (Viewer, Admin, Owner).
+    """
+    if not current_user.memberships:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active organization membership found.",
+        )
+    membership = current_user.memberships[0]
+    org = (
+        db.query(models.Organization)
+        .filter(models.Organization.id == membership.organization_id)
+        .first()
+    )
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found.",
+        )
+
+    member_count = (
+        db.query(models.Member)
+        .filter(models.Member.organization_id == org.id)
+        .count()
+    )
+    device_count = (
+        db.query(models.Device)
+        .filter(
+            models.Device.organization_id == org.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .count()
+    )
+    policy_count = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id == org.id)
+        .count()
+    )
+
+    return schemas.OrganizationProfileResponse(
+        id=org.id,
+        name=org.name,
+        created_at=org.created_at,
+        updated_at=org.updated_at,
+        member_count=member_count,
+        device_count=device_count,
+        policy_count=policy_count,
+        current_user_role=membership.role,
+    )
+
+
+@router.patch("/org/profile", response_model=schemas.OrganizationProfileResponse)
+def update_organization_profile(
+    profile_in: schemas.OrganizationProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_owner),
+):
+    """
+    Updates mutable fields of the organization profile (e.g., name).
+    Restricted exclusively to organization Owners.
+    """
+    owner_memberships = [
+        m for m in current_user.memberships if m.role == "owner"
+    ]
+    if not owner_memberships:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner privileges required for this action.",
+        )
+    membership = owner_memberships[0]
+    org = (
+        db.query(models.Organization)
+        .filter(models.Organization.id == membership.organization_id)
+        .first()
+    )
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found.",
+        )
+
+    new_name = profile_in.name.strip()
+    if not new_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization name cannot be empty.",
+        )
+
+    org.name = new_name
+    org.updated_at = datetime.utcnow()
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="ORGANIZATION_UPDATED",
+        rule_name="organization.profile",
+        message=f"Organization profile updated to '{org.name}' by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    default_policy = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id == org.id)
+        .first()
+    )
+    if default_policy and default_policy.active_version_id:
+        event.policy_version_id = default_policy.active_version_id
+
+    db.add(event)
+    db.commit()
+    db.refresh(org)
+
+    member_count = (
+        db.query(models.Member)
+        .filter(models.Member.organization_id == org.id)
+        .count()
+    )
+    device_count = (
+        db.query(models.Device)
+        .filter(
+            models.Device.organization_id == org.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .count()
+    )
+    policy_count = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id == org.id)
+        .count()
+    )
+
+    return schemas.OrganizationProfileResponse(
+        id=org.id,
+        name=org.name,
+        created_at=org.created_at,
+        updated_at=org.updated_at,
+        member_count=member_count,
+        device_count=device_count,
+        policy_count=policy_count,
+        current_user_role="owner",
+    )
+
+
+@router.get("/org/members", response_model=schemas.OrganizationMemberListResponse)
+def get_organization_members(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Lists all members belonging to the caller's organization.
+    Accessible to all authenticated roles (Viewer, Admin, Owner).
+    """
+    org_ids = [m.organization_id for m in current_user.memberships]
+    if not org_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No active organization membership found.",
+        )
+
+    members = (
+        db.query(models.Member)
+        .filter(models.Member.organization_id.in_(org_ids))
+        .order_by(models.Member.created_at.asc())
+        .all()
+    )
+
+    items = [
+        schemas.OrganizationMemberResponse(
+            id=m.id,
+            user_id=m.user_id,
+            email=m.user.email,
+            role=m.role,
+            created_at=m.created_at,
+        )
+        for m in members
+        if m.user
+    ]
+
+    return schemas.OrganizationMemberListResponse(items=items, total=len(items))
+
+
+@router.post("/org/members", response_model=schemas.OrganizationMemberResponse)
+def add_organization_member(
+    member_in: schemas.OrganizationMemberCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_owner),
+):
+    """
+    Adds a new member to the organization with an 'admin' or 'viewer' role.
+    Restricted exclusively to organization Owners.
+    """
+    target_role = member_in.role.lower().strip()
+    if target_role not in ["admin", "viewer"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Allowed roles for newly added members are 'admin' or 'viewer'. Cannot create owner.",
+        )
+
+    owner_memberships = [
+        m for m in current_user.memberships if m.role == "owner"
+    ]
+    if not owner_memberships:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner privileges required to add members.",
+        )
+    org_id = owner_memberships[0].organization_id
+
+    normalized_email = member_in.email.lower().strip()
+    target_user = (
+        db.query(models.User)
+        .filter(models.User.email == normalized_email)
+        .first()
+    )
+
+    if target_user:
+        existing_member = (
+            db.query(models.Member)
+            .filter(
+                models.Member.organization_id == org_id,
+                models.Member.user_id == target_user.id,
+            )
+            .first()
+        )
+        if existing_member:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"User '{normalized_email}' is already a member of this workspace.",
+            )
+    else:
+        target_user = models.User(
+            id=uuid.uuid4(),
+            email=normalized_email,
+            hashed_password=security.get_password_hash(secrets.token_urlsafe(24)),
+        )
+        db.add(target_user)
+        db.commit()
+        db.refresh(target_user)
+
+    new_member = models.Member(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        organization_id=org_id,
+        role=target_role,
+    )
+    db.add(new_member)
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="MEMBER_ADDED",
+        rule_name="organization.member",
+        message=f"Member '{target_user.email}' added with role '{target_role}' by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    default_policy = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id == org_id)
+        .first()
+    )
+    if default_policy and default_policy.active_version_id:
+        event.policy_version_id = default_policy.active_version_id
+
+    db.add(event)
+    db.commit()
+    db.refresh(new_member)
+
+    return schemas.OrganizationMemberResponse(
+        id=new_member.id,
+        user_id=new_member.user_id,
+        email=target_user.email,
+        role=new_member.role,
+        created_at=new_member.created_at,
+    )
+
+
+@router.patch("/org/members/{member_id}", response_model=schemas.OrganizationMemberResponse)
+def update_member_role(
+    member_id: uuid.UUID,
+    update_in: schemas.OrganizationMemberUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_owner),
+):
+    """
+    Updates the role of a team member (admin <-> viewer).
+    Enforces that there must always be at least one Owner in the organization.
+    Restricted exclusively to organization Owners.
+    """
+    target_role = update_in.role.lower().strip()
+    if target_role not in ["admin", "viewer"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Allowed roles are 'admin' or 'viewer'. Cannot assign owner role.",
+        )
+
+    owner_org_ids = [
+        m.organization_id for m in current_user.memberships if m.role == "owner"
+    ]
+    target_member = (
+        db.query(models.Member)
+        .filter(
+            models.Member.id == member_id,
+            models.Member.organization_id.in_(owner_org_ids),
+        )
+        .first()
+    )
+    if not target_member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found in your organization.",
+        )
+
+    # Invariant: Prevent demoting the last remaining owner
+    if target_member.role == "owner":
+        owner_count = (
+            db.query(models.Member)
+            .filter(
+                models.Member.organization_id == target_member.organization_id,
+                models.Member.role == "owner",
+            )
+            .count()
+        )
+        if owner_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot demote the last remaining owner of the organization.",
+            )
+
+    old_role = target_member.role
+    target_member.role = target_role
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="MEMBER_ROLE_CHANGED",
+        rule_name="organization.member",
+        message=(
+            f"Member '{target_member.user.email}' role changed from '{old_role}' "
+            f"to '{target_role}' by {current_user.email}."
+        ),
+        timestamp=datetime.utcnow(),
+    )
+    default_policy = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id == target_member.organization_id)
+        .first()
+    )
+    if default_policy and default_policy.active_version_id:
+        event.policy_version_id = default_policy.active_version_id
+
+    db.add(event)
+    db.commit()
+    db.refresh(target_member)
+
+    return schemas.OrganizationMemberResponse(
+        id=target_member.id,
+        user_id=target_member.user_id,
+        email=target_member.user.email,
+        role=target_member.role,
+        created_at=target_member.created_at,
+    )
+
+
+@router.delete("/org/members/{member_id}")
+def remove_organization_member(
+    member_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_owner),
+):
+    """
+    Removes a member from the organization.
+    Enforces that the last remaining owner cannot be removed.
+    Does NOT delete the underlying User account.
+    Restricted exclusively to organization Owners.
+    """
+    owner_org_ids = [
+        m.organization_id for m in current_user.memberships if m.role == "owner"
+    ]
+    target_member = (
+        db.query(models.Member)
+        .filter(
+            models.Member.id == member_id,
+            models.Member.organization_id.in_(owner_org_ids),
+        )
+        .first()
+    )
+    if not target_member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found in your organization.",
+        )
+
+    # Invariant: Prevent removing the last remaining owner
+    if target_member.role == "owner":
+        owner_count = (
+            db.query(models.Member)
+            .filter(
+                models.Member.organization_id == target_member.organization_id,
+                models.Member.role == "owner",
+            )
+            .count()
+        )
+        if owner_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove the last remaining owner of the organization.",
+            )
+
+    member_email = target_member.user.email if target_member.user else "Unknown"
+    member_role = target_member.role
+    org_id = target_member.organization_id
+
+    db.delete(target_member)
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="MEMBER_REMOVED",
+        rule_name="organization.member",
+        message=(
+            f"Member '{member_email}' ({member_role}) removed from workspace by {current_user.email}."
+        ),
+        timestamp=datetime.utcnow(),
+    )
+    default_policy = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id == org_id)
+        .first()
+    )
+    if default_policy and default_policy.active_version_id:
+        event.policy_version_id = default_policy.active_version_id
+
+    db.add(event)
+    db.commit()
+
+    return {"status": "removed", "member_id": str(member_id)}
