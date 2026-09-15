@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft, ShieldCheck, X, Copy, Check, FileCheck, Layers, ExternalLink
+  ArrowLeft, ShieldCheck, X, Copy, Check, FileCheck, Layers, ExternalLink, FolderKanban
 } from "lucide-react"
 import {
   StatusBadge, ConnectionBadge, LoadingState, SeverityBadge
@@ -22,6 +22,10 @@ interface Device {
   compliance_status: string
   compliance_score: number
   last_checkin: string | null
+  group_id: string | null
+  group_name: string | null
+  effective_policy_source: string | null
+  effective_policy_name: string | null
 }
 
 interface Finding {
@@ -448,12 +452,39 @@ export default function DeviceDetails() {
             <div className="info-value mono">{device.os_arch} · {device.kernel_version}</div>
           </div>
           <div className="info-cell">
-            <div className="info-label">Agent version</div>
-            <div className="info-value mono">{device.agent_version}</div>
+            <div className="info-label">Device group</div>
+            <div className="info-value">
+              {device.group_name ? (
+                <Link
+                  href="/devices/groups"
+                  className="inline-flex items-center gap-1 font-medium text-brand hover:underline"
+                >
+                  <FolderKanban className="h-3.5 w-3.5" />
+                  <span>{device.group_name}</span>
+                </Link>
+              ) : (
+                <span className="text-text-muted italic">Ungrouped</span>
+              )}
+            </div>
           </div>
           <div className="info-cell">
-            <div className="info-label">Active policy</div>
-            <div className="info-value mono">{effectivePolicy?.name || effectivePolicy?.policy_name || "Baseline"}</div>
+            <div className="info-label">Active policy & source</div>
+            <div className="info-value flex items-center gap-2">
+              <span className="mono font-medium">{effectivePolicy?.name || effectivePolicy?.policy_name || "Baseline"}</span>
+              {device.effective_policy_source === "DEVICE_OVERRIDE" ? (
+                <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                  Override
+                </span>
+              ) : device.effective_policy_source === "GROUP_POLICY" ? (
+                <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-800 border border-teal-300">
+                  Group Policy
+                </span>
+              ) : (
+                <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300">
+                  Org Default
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
