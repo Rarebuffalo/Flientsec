@@ -26,8 +26,38 @@ Developer Workstation             Secure REST API (HTTPS)          Cloud Dashboa
 
 ---
 
-## 2. Component Layout Mapping
+## 2. Deterministic 3-Tier Policy Precedence Architecture
+
+Workstations in an organization resolve their active security policy through a deterministic, 3-tier precedence hierarchy:
+
+```
+┌────────────────────────────────────────────────────────┐
+│  Tier 1: Direct Device Override                        │
+│  (PolicyAssignment with explicit device_id)            │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Fallback if None
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│  Tier 2: Device Group Policy                           │
+│  (DeviceGroup.policy_id via device.group_id)           │
+└──────────────────────────┬─────────────────────────────┘
+                           │ Fallback if None
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│  Tier 3: Organization Default Policy                   │
+│  (PolicyAssignment with organization_id, device_id=NULL)
+└────────────────────────────────────────────────────────┘
+```
+
+1. **Direct Device Policy Override:** Highest priority. Explicitly targets a specific critical workstation for bespoke compliance rules.
+2. **Device Group Policy:** Targets functional cohorts (e.g. Engineering, Finance, PCI DSS workstations). When assigned, all group members receive this policy unless an individual override is active.
+3. **Organization Default Policy:** Safe baseline fallback for all enrolled workstations in the tenant.
+
+---
+
+## 3. Component Layout Mapping
 - **Local Ticker Checker:** Evaluates disk mappings (LSBLK), system updates, and firewall logs.
 - **Client Cache Queue:** Telemetry check-ins buffer in a thread-safe queue during network failures, flushing to the server once the connection is restored. See the [Configuration Guide](configuration.md) for retry setups.
 - **Secure Transport Boundary:** Authentication tokens signature certificate validation. See the [Security Specs](security.md) for transport security details.
+- **Device Groups & Governance:** Multi-user team administration and group-based policy assignment.
 - **Asymmetric Baseline Policy:** Rules mapped as git-controlled configurations. See [Policy Language](policy-language.md) for details.
