@@ -114,10 +114,68 @@ class DeviceResponse(BaseModel):
     compliance_score: int
     last_checkin: Optional[datetime] = None
     device_token: Optional[str] = None
+    group_id: Optional[UUID] = None
+    group_name: Optional[str] = None
+    effective_policy_source: Optional[str] = None
+    effective_policy_id: Optional[UUID] = None
+    effective_policy_name: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# DeviceGroup Schemas
+class DeviceGroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class DeviceGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class DeviceGroupPolicyAssign(BaseModel):
+    policy_id: UUID
+
+
+class DeviceGroupResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    name: str
+    description: Optional[str] = None
+    policy_id: Optional[UUID] = None
+    policy_name: Optional[str] = None
+    device_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceGroupDetailResponse(BaseModel):
+    id: UUID
+    organization_id: UUID
+    name: str
+    description: Optional[str] = None
+    policy_id: Optional[UUID] = None
+    policy_name: Optional[str] = None
+    device_count: int = 0
+    compliant_count: int = 0
+    warning_count: int = 0
+    failing_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceGroupListResponse(BaseModel):
+    items: List[DeviceGroupResponse]
+    total: int
 
 
 # Finding Schemas
@@ -320,6 +378,13 @@ class EventTypeEnum(str, Enum):
     MEMBER_ROLE_CHANGED = "MEMBER_ROLE_CHANGED"
     MEMBER_REMOVED = "MEMBER_REMOVED"
     ORGANIZATION_UPDATED = "ORGANIZATION_UPDATED"
+    DEVICE_GROUP_CREATED = "DEVICE_GROUP_CREATED"
+    DEVICE_GROUP_UPDATED = "DEVICE_GROUP_UPDATED"
+    DEVICE_GROUP_DELETED = "DEVICE_GROUP_DELETED"
+    DEVICE_ADDED_TO_GROUP = "DEVICE_ADDED_TO_GROUP"
+    DEVICE_REMOVED_FROM_GROUP = "DEVICE_REMOVED_FROM_GROUP"
+    GROUP_POLICY_ASSIGNED = "GROUP_POLICY_ASSIGNED"
+    GROUP_POLICY_UNASSIGNED = "GROUP_POLICY_UNASSIGNED"
 
 
 class FindingRemediationRequest(BaseModel):
