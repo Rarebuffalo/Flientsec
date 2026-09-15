@@ -1,9 +1,10 @@
 "use client"
 
 import React, { useEffect, useState, useMemo } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
-  Search, ShieldAlert, RotateCw, FilterX
+  Search, ShieldAlert, RotateCw, FilterX, FolderKanban, Laptop
 } from "lucide-react"
 import {
   PageHeader, LoadingState, EmptyState, StatusBadge, ConnectionBadge
@@ -20,6 +21,16 @@ interface Device {
   compliance_status: string
   compliance_score: number
   last_checkin: string | null
+  group_id: string | null
+  group_name: string | null
+  effective_policy_source: string | null
+  effective_policy_name: string | null
+}
+
+interface DeviceGroup {
+  id: string
+  name: string
+  device_count: number
 }
 
 // Relative time formatter helper
@@ -43,6 +54,7 @@ function getRelativeTime(dateString: string | null): string {
 export default function WorkstationsPage() {
   const router = useRouter()
   const [devices, setDevices] = useState<Device[]>([])
+  const [groups, setGroups] = useState<DeviceGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,10 +63,11 @@ export default function WorkstationsPage() {
   const [connFilter, setConnFilter] = useState("all")
   const [postureFilter, setPostureFilter] = useState("all")
   const [osFilter, setOsFilter] = useState("all")
+  const [groupFilter, setGroupFilter] = useState("all")
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-  const fetchDevices = async () => {
+  const fetchDevicesAndGroups = async () => {
     try {
       setLoading(true)
       const token = localStorage.getItem("flientsec_token")
@@ -64,17 +77,27 @@ export default function WorkstationsPage() {
       }
       const headers = { Authorization: `Bearer ${token}` }
 
-      const res = await fetch(`${apiUrl}/api/v1/devices`, { headers })
-      if (!res.ok) {
-        if (res.status === 401) {
+      const [resDevices, resGroups] = await Promise.all([
+        fetch(`${apiUrl}/api/v1/devices`, { headers }),
+        fetch(`${apiUrl}/api/v1/device-groups`, { headers }),
+      ])
+
+      if (!resDevices.ok) {
+        if (resDevices.status === 401) {
           localStorage.removeItem("flientsec_token")
           router.push("/login")
           return
         }
         throw new Error("Failed to retrieve workstation fleet data")
       }
-      const data = await res.json()
-      setDevices(data)
+      const dataDevices = await resDevices.json()
+      setDevices(dataDevices)
+
+      if (resGroups.ok) {
+        const dataGroups = await resGroups.json()
+        setGroups(dataGroups)
+      }
+
       setError(null)
     } catch (err: any) {
       setError(err.message || "Could not establish database connection.")
@@ -84,7 +107,7 @@ export default function WorkstationsPage() {
   }
 
   useEffect(() => {
-    fetchDevices()
+    fetchDevicesAndGroups()
   }, [])
 
   // Calculate unique operating systems for OS filter dropdown
@@ -103,7 +126,8 @@ export default function WorkstationsPage() {
       result = result.filter(d =>
         d.hostname.toLowerCase().includes(query) ||
         d.id.toLowerCase().includes(query) ||
-        (d.os_name && d.os_name.toLowerCase().includes(query))
+        (d.os_name && d.os_name.toLowerCase().includes(query)) ||
+        (d.group_name && d.group_name.toLowerCase().includes(query))
       )
     }
 
@@ -116,7 +140,6 @@ export default function WorkstationsPage() {
     // 3. Posture filter
     if (postureFilter !== "all") {
       const target = postureFilter.toUpperCase()
-      // Mapping PASS/WARN/FAIL
       let statusMap = "PASS"
       if (target === "WARNING") statusMap = "WARN"
       if (target === "FAILING") statusMap = "FAIL"
@@ -126,6 +149,15 @@ export default function WorkstationsPage() {
     // 4. OS filter
     if (osFilter !== "all") {
       result = result.filter(d => d.os_name === osFilter)
+    }
+
+    // 5. Group filter
+    if (groupFilter !== "all") {
+      if (groupFilter === "ungrouped") {
+        result = result.filter(d => !d.group_id)
+      } else {
+        result = result.filter(d => d.group_id === groupFilter)
+      }
     }
 
     // Default Sort Order: FAIL -> WARN -> PASS, then most recent last_checkin first
@@ -150,15 +182,21 @@ export default function WorkstationsPage() {
     })
 
     return result
-  }, [devices, searchQuery, connFilter, postureFilter, osFilter])
+  }, [devices, searchQuery, connFilter, postureFilter, osFilter, groupFilter])
 
-  const hasActiveFilters = searchQuery !== "" || connFilter !== "all" || postureFilter !== "all" || osFilter !== "all"
+  const hasActiveFilters =
+    searchQuery !== "" ||
+    connFilter !== "all" ||
+    postureFilter !== "all" ||
+    osFilter !== "all" ||
+    groupFilter !== "all"
 
   const handleResetFilters = () => {
     setSearchQuery("")
     setConnFilter("all")
     setPostureFilter("all")
     setOsFilter("all")
+    setGroupFilter("all")
   }
 
   if (loading) {
@@ -167,14 +205,13 @@ export default function WorkstationsPage() {
 
   return (
     <div className="space-y-8 flex-1 flex flex-col font-sans">
-
       {/* Page Header */}
       <PageHeader
         title="Devices"
         subtitle={`Fleet inventory · ${devices.length} workstations enrolled.`}
         actions={
           <button
-            onClick={fetchDevices}
+            onClick={fetchDevicesAndGroups}
             className="btn btn-sm"
             aria-label="Refresh fleet list"
             title="Refresh fleet list"
@@ -185,6 +222,23 @@ export default function WorkstationsPage() {
         }
       />
 
+      {/* Sub-Navigation Tabs */}
+      <div className="border-b border-slate-200">
+        <div className="flex space-x-6 text-sm">
+          <div className="pb-3 text-brand font-semibold border-b-2 border-brand flex items-center gap-2">
+            <Laptop className="h-4 w-4" />
+            <span>Enrolled Workstations ({devices.length})</span>
+          </div>
+          <Link
+            href="/devices/groups"
+            className="pb-3 text-text-muted hover:text-text-main font-medium border-b-2 border-transparent flex items-center gap-2"
+          >
+            <FolderKanban className="h-4 w-4" />
+            <span>Device Groups ({groups.length})</span>
+          </Link>
+        </div>
+      </div>
+
       {/* API Error Warning */}
       {error && (
         <div className="panel p-5 border border-danger/30 bg-danger/5 text-danger text-sm flex items-center justify-between">
@@ -192,10 +246,7 @@ export default function WorkstationsPage() {
             <ShieldAlert className="h-5 w-5 flex-shrink-0" />
             <span>{error}</span>
           </div>
-          <button
-            onClick={fetchDevices}
-            className="btn btn-sm"
-          >
+          <button onClick={fetchDevicesAndGroups} className="btn btn-sm">
             Retry Connection
           </button>
         </div>
@@ -220,20 +271,35 @@ export default function WorkstationsPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search hostname, UUID, OS…"
+                  placeholder="Search hostname, UUID, OS, group…"
                   className="input"
                 />
               </div>
-              <select
-                value={osFilter}
-                onChange={(e) => setOsFilter(e.target.value)}
-                className="select"
-              >
-                <option value="all">All operating systems</option>
-                {uniqueOSNames.map(os => (
-                  <option key={os} value={os}>{os}</option>
-                ))}
-              </select>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  value={groupFilter}
+                  onChange={(e) => setGroupFilter(e.target.value)}
+                  className="select text-xs"
+                >
+                  <option value="all">All device groups</option>
+                  <option value="ungrouped">Ungrouped only</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name} ({g.device_count})</option>
+                  ))}
+                </select>
+
+                <select
+                  value={osFilter}
+                  onChange={(e) => setOsFilter(e.target.value)}
+                  className="select text-xs"
+                >
+                  <option value="all">All operating systems</option>
+                  {uniqueOSNames.map(os => (
+                    <option key={os} value={os}>{os}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-6 items-center">
@@ -318,6 +384,7 @@ export default function WorkstationsPage() {
                 <thead>
                   <tr>
                     <th>Hostname</th>
+                    <th>Group</th>
                     <th>Status</th>
                     <th>Posture</th>
                     <th>Score</th>
@@ -337,6 +404,16 @@ export default function WorkstationsPage() {
                         <td data-label="Hostname">
                           <div className="cell-primary">{device.hostname}</div>
                           <div className="cell-sub mono">{device.id}</div>
+                        </td>
+                        <td data-label="Group">
+                          {device.group_name ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                              <FolderKanban className="h-3 w-3 text-brand" />
+                              <span>{device.group_name}</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-text-muted italic">Ungrouped</span>
+                          )}
                         </td>
                         <td data-label="Status">
                           <ConnectionBadge status={device.status} lastSeen={relativeTime} />
@@ -365,11 +442,3 @@ export default function WorkstationsPage() {
     </div>
   )
 }
-
-const Laptop = (props: any) => (
-  <svg {...props} fill="none" strokeWidth="2" stroke="currentColor" viewBox="0 0 24 24">
-    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-    <line x1="2" y1="20" x2="22" y2="20" />
-    <line x1="12" y1="17" x2="12" y2="20" />
-  </svg>
-)
