@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, DateTime, ForeignKey, Integer, Index, Boolean, text
+    Column, String, DateTime, ForeignKey, Integer, Index, Boolean, text,
+    UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, validates
@@ -29,6 +30,11 @@ class Organization(Base):
     )
     enrollment_tokens = relationship(
         "EnrollmentToken",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    device_groups = relationship(
+        "DeviceGroup",
         back_populates="organization",
         cascade="all, delete-orphan",
     )
@@ -125,9 +131,16 @@ class Device(Base):
 
     # Device Token generated upon successful registration handshake
     device_token = Column(String, unique=True, index=True, nullable=True)
+    group_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("device_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="devices")
+    group = relationship("DeviceGroup", back_populates="devices")
     check_runs = relationship(
         "CheckRun", back_populates="device", cascade="all, delete-orphan"
     )
@@ -147,10 +160,24 @@ class DeviceGroup(Base):
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
     name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
     policy_id = Column(
         UUID(as_uuid=True), ForeignKey("policies.id"), nullable=True
     )
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    organization = relationship("Organization", back_populates="device_groups")
+    policy = relationship("Policy")
+    devices = relationship("Device", back_populates="group")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "name", name="uq_device_group_org_name"
+        ),
+    )
 
 
 class Policy(Base):
