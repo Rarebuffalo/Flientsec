@@ -10,16 +10,124 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core import security
-from app.core.authorization import get_current_user, require_admin_or_owner, require_owner
+from app.core.authorization import (
+    get_current_user, require_admin_or_owner, require_owner,
+    require_authenticated_viewer
+)
 from app.models import models
 from app.schemas import schemas
 from app.services import webhook_service, compliance_service, remediation_service
 
 router = APIRouter()
+
+
+def get_effective_policy_for_device(
+    device: models.Device, db: Session
+) -> tuple[Optional[models.Policy], Optional[str]]:
+    """
+    Deterministic Policy Resolution Precedence:
+    1. Direct Device Policy Override (PolicyAssignment with device_id == device.id)
+    2. Device Group Policy (device.group_id -> DeviceGroup.policy_id)
+    3. Organization Default Policy (PolicyAssignment with organization_id == device.organization_id and device_id IS NULL)
+
+    Returns (policy, source_type) where source_type is:
+    "DEVICE_OVERRIDE", "GROUP_POLICY", "ORG_DEFAULT", or None
+    """
+    # 1. Look for direct device override
+    assignment = (
+        db.query(models.PolicyAssignment)
+        .filter(models.PolicyAssignment.device_id == device.id)
+        .first()
+    )
+    if assignment and assignment.policy_id:
+        policy = (
+            db.query(models.Policy)
+            .filter(models.Policy.id == assignment.policy_id)
+            .first()
+        )
+        if policy:
+            return policy, "DEVICE_OVERRIDE"
+
+    # 2. Look for device group policy
+    if device.group_id:
+        group = (
+            db.query(models.DeviceGroup)
+            .filter(models.DeviceGroup.id == device.group_id)
+            .first()
+        )
+        if group and group.policy_id:
+            group_policy = (
+                db.query(models.Policy)
+                .filter(models.Policy.id == group.policy_id)
+                .first()
+            )
+            if group_policy:
+                return group_policy, "GROUP_POLICY"
+
+    # 3. Look for organization default
+    org_default = (
+        db.query(models.PolicyAssignment)
+        .filter(
+            models.PolicyAssignment.organization_id == device.organization_id,
+            models.PolicyAssignment.device_id.is_(None),
+        )
+        .first()
+    )
+    if org_default and org_default.policy_id:
+        policy = (
+            db.query(models.Policy)
+            .filter(models.Policy.id == org_default.policy_id)
+            .first()
+        )
+        if policy:
+            return policy, "ORG_DEFAULT"
+
+    return None, None
+
+
+def enrich_device_response(
+    device: models.Device, db: Session
+) -> schemas.DeviceResponse:
+    group_name = None
+    if device.group_id:
+        if device.group:
+            group_name = device.group.name
+        else:
+            grp = (
+                db.query(models.DeviceGroup)
+                .filter(models.DeviceGroup.id == device.group_id)
+                .first()
+            )
+            if grp:
+                group_name = grp.name
+
+    effective_pol, source = get_effective_policy_for_device(device, db)
+
+    return schemas.DeviceResponse(
+        id=device.id,
+        organization_id=device.organization_id,
+        hostname=device.hostname,
+        os_name=device.os_name,
+        os_version=device.os_version,
+        os_arch=device.os_arch,
+        kernel_version=device.kernel_version,
+        agent_version=device.agent_version,
+        status=device.status,
+        compliance_status=device.compliance_status,
+        compliance_score=device.compliance_score,
+        last_checkin=device.last_checkin,
+        device_token=device.device_token,
+        group_id=device.group_id,
+        group_name=group_name,
+        effective_policy_source=source,
+        effective_policy_id=effective_pol.id if effective_pol else None,
+        effective_policy_name=effective_pol.name if effective_pol else None,
+        created_at=device.created_at,
+    )
 
 
 def dispatch_webhooks_for_event(db: Session, org_id: uuid.UUID, event_data: dict):
@@ -446,26 +554,10 @@ def agent_checkin(
             )
 
         # Determine currently desired effective policy version
-        assignment = (
-            db.query(models.PolicyAssignment)
-            .filter(models.PolicyAssignment.device_id == device.id)
-            .first()
+        effective_policy, _ = get_effective_policy_for_device(device, db)
+        desired_ver_id = (
+            effective_policy.active_version_id if effective_policy else None
         )
-        if not assignment:
-            assignment = (
-                db.query(models.PolicyAssignment)
-                .filter(
-                    models.PolicyAssignment.organization_id == (
-                        device.organization_id
-                    ),
-                    models.PolicyAssignment.device_id.is_(None)
-                )
-                .first()
-            )
-
-        desired_ver_id = None
-        if assignment and assignment.policy:
-            desired_ver_id = assignment.policy.active_version_id
 
         # Classify status
         if desired_ver_id and version.id == desired_ver_id:
@@ -876,6 +968,7 @@ def revoke_enrollment_token(
 # Dashboard APIs (Requires auth)
 @router.get("/devices", response_model=List[schemas.DeviceResponse])
 def list_devices(
+    group_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -898,14 +991,22 @@ def list_devices(
     if stale_devices:
         db.commit()
 
-    return (
-        db.query(models.Device)
-        .filter(
-            models.Device.organization_id.in_(memberships),
-            models.Device.status != "DECOMMISSIONED",
-        )
-        .all()
+    query = db.query(models.Device).filter(
+        models.Device.organization_id.in_(memberships),
+        models.Device.status != "DECOMMISSIONED",
     )
+    if group_id:
+        if group_id.lower() == "unassigned":
+            query = query.filter(models.Device.group_id.is_(None))
+        else:
+            try:
+                g_uuid = uuid.UUID(group_id)
+                query = query.filter(models.Device.group_id == g_uuid)
+            except ValueError:
+                pass
+
+    devices = query.all()
+    return [enrich_device_response(d, db) for d in devices]
 
 
 def evaluate_device_liveness(
@@ -937,7 +1038,8 @@ def get_device(
     )
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    return evaluate_device_liveness(device, db)
+    evaluated = evaluate_device_liveness(device, db)
+    return enrich_device_response(evaluated, db)
 
 
 @router.post("/devices/{id}/revoke", response_model=schemas.DeviceResponse)
@@ -1317,6 +1419,50 @@ def get_policies(
     policy.active_version_number = active_version_number
 
     return policy
+
+
+@router.get("/policies-list", response_model=List[schemas.PolicyResponse])
+def list_organization_policies(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_authenticated_viewer),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    policies = (
+        db.query(models.Policy)
+        .filter(models.Policy.organization_id.in_(memberships))
+        .all()
+    )
+    for pol in policies:
+        latest_version = (
+            db.query(models.PolicyVersion)
+            .filter(models.PolicyVersion.policy_id == pol.id)
+            .order_by(models.PolicyVersion.version_number.desc())
+            .first()
+        )
+        if latest_version and latest_version.definition_json:
+            try:
+                dict_def = json.loads(latest_version.definition_json)
+                pol.rules_yaml = yaml.dump(dict_def, sort_keys=False)
+            except Exception:
+                pol.rules_yaml = (
+                    latest_version.content
+                    if latest_version.content
+                    else "rules: {}"
+                )
+        else:
+            pol.rules_yaml = "rules: {}"
+
+        active_version_number = None
+        if pol.active_version_id:
+            active_ver = (
+                db.query(models.PolicyVersion)
+                .filter(models.PolicyVersion.id == pol.active_version_id)
+                .first()
+            )
+            if active_ver:
+                active_version_number = active_ver.version_number
+        pol.active_version_number = active_version_number
+    return policies
 
 
 @router.post("/policies", response_model=schemas.PolicyResponse)
@@ -1931,43 +2077,13 @@ def get_effective_policy(
             status_code=404, detail="Device not found"
         )
 
-    # Resolve active policy:
-    # 1. Look for device override
-    assignment = (
-        db.query(models.PolicyAssignment)
-        .filter(
-            models.PolicyAssignment.device_id == device.id
-        )
-        .first()
-    )
-
-    # 2. Look for organization default
-    if not assignment:
-        assignment = (
-            db.query(models.PolicyAssignment)
-            .filter(
-                models.PolicyAssignment.organization_id == (
-                    device.organization_id
-                ),
-                models.PolicyAssignment.device_id.is_(None)
-            )
-            .first()
-        )
-
-    if not assignment:
-        raise HTTPException(
-            status_code=404,
-            detail="No policy assigned to this device or organization"
-        )
-
-    policy = (
-        db.query(models.Policy)
-        .filter(models.Policy.id == assignment.policy_id)
-        .first()
-    )
+    # Resolve active policy with deterministic precedence:
+    # 1. Device override -> 2. Group policy -> 3. Organization default
+    policy, _ = get_effective_policy_for_device(device, db)
     if not policy:
         raise HTTPException(
-            status_code=404, detail="Assigned policy not found"
+            status_code=404,
+            detail="No policy assigned to this device, group, or organization"
         )
 
     # Populate rules_yaml dynamically for backward compatibility
@@ -2015,44 +2131,13 @@ def get_agent_policy(
     db: Session = Depends(get_db),
     device: models.Device = Depends(get_current_device),
 ):
-    # Resolve active policy:
-    # 1. Device override
-    assignment = (
-        db.query(models.PolicyAssignment)
-        .filter(
-            models.PolicyAssignment.device_id == device.id
-        )
-        .first()
-    )
-
-    # 2. Organization default fallback
-    if not assignment:
-        assignment = (
-            db.query(models.PolicyAssignment)
-            .filter(
-                models.PolicyAssignment.organization_id == (
-                    device.organization_id
-                ),
-                models.PolicyAssignment.device_id.is_(None)
-            )
-            .first()
-        )
-
-    if not assignment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No policy assigned to this device or organization"
-        )
-
-    policy = (
-        db.query(models.Policy)
-        .filter(models.Policy.id == assignment.policy_id)
-        .first()
-    )
+    # Resolve active policy using deterministic precedence:
+    # 1. Device override -> 2. Group policy -> 3. Org default
+    policy, _ = get_effective_policy_for_device(device, db)
     if not policy:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Assigned policy not found"
+            detail="No policy assigned to this device, group, or organization"
         )
 
     # Resolve active published version
@@ -3761,3 +3846,594 @@ def remove_organization_member(
     db.commit()
 
     return {"status": "removed", "member_id": str(member_id)}
+
+
+# ==========================================
+# Device Groups & Dynamic Membership APIs (Phase 11.1)
+# ==========================================
+
+@router.get("/device-groups", response_model=List[schemas.DeviceGroupResponse])
+def list_device_groups(
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_authenticated_viewer),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    query = db.query(models.DeviceGroup).filter(
+        models.DeviceGroup.organization_id.in_(memberships)
+    )
+    if search:
+        query = query.filter(
+            models.DeviceGroup.name.ilike(f"%{search}%")
+            | models.DeviceGroup.description.ilike(f"%{search}%")
+        )
+    groups = query.order_by(models.DeviceGroup.created_at.desc()).all()
+
+    result = []
+    for g in groups:
+        device_count = (
+            db.query(models.Device)
+            .filter(
+                models.Device.group_id == g.id,
+                models.Device.status != "DECOMMISSIONED",
+            )
+            .count()
+        )
+        pol_name = g.policy.name if g.policy else None
+        result.append(
+            schemas.DeviceGroupResponse(
+                id=g.id,
+                organization_id=g.organization_id,
+                name=g.name,
+                description=g.description,
+                policy_id=g.policy_id,
+                policy_name=pol_name,
+                device_count=device_count,
+                created_at=g.created_at,
+                updated_at=g.updated_at,
+            )
+        )
+    return result
+
+
+@router.post(
+    "/device-groups",
+    response_model=schemas.DeviceGroupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_device_group(
+    group_in: schemas.DeviceGroupCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    if not current_user.memberships:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User does not belong to any organization",
+        )
+    org_id = current_user.memberships[0].organization_id
+
+    # Check for name uniqueness within organization
+    existing = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.organization_id == org_id,
+            func.lower(models.DeviceGroup.name) == group_in.name.strip().lower(),
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Device group with name '{group_in.name}' already exists in this organization",
+        )
+
+    new_group = models.DeviceGroup(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        name=group_in.name.strip(),
+        description=group_in.description.strip() if group_in.description else None,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(new_group)
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="DEVICE_GROUP_CREATED",
+        rule_name="device.group",
+        message=f"Device group '{new_group.name}' created by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(new_group)
+
+    return schemas.DeviceGroupResponse(
+        id=new_group.id,
+        organization_id=new_group.organization_id,
+        name=new_group.name,
+        description=new_group.description,
+        policy_id=new_group.policy_id,
+        policy_name=None,
+        device_count=0,
+        created_at=new_group.created_at,
+        updated_at=new_group.updated_at,
+    )
+
+
+@router.get(
+    "/device-groups/{group_id}",
+    response_model=schemas.DeviceGroupDetailResponse,
+)
+def get_device_group(
+    group_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_authenticated_viewer),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    devices = (
+        db.query(models.Device)
+        .filter(
+            models.Device.group_id == group.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .all()
+    )
+    device_count = len(devices)
+    compliant_count = sum(1 for d in devices if d.compliance_status == "PASS")
+    warning_count = sum(1 for d in devices if d.compliance_status == "WARN")
+    failing_count = sum(1 for d in devices if d.compliance_status == "FAIL")
+
+    pol_name = group.policy.name if group.policy else None
+
+    return schemas.DeviceGroupDetailResponse(
+        id=group.id,
+        organization_id=group.organization_id,
+        name=group.name,
+        description=group.description,
+        policy_id=group.policy_id,
+        policy_name=pol_name,
+        device_count=device_count,
+        compliant_count=compliant_count,
+        warning_count=warning_count,
+        failing_count=failing_count,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+@router.patch(
+    "/device-groups/{group_id}",
+    response_model=schemas.DeviceGroupResponse,
+)
+def update_device_group(
+    group_id: uuid.UUID,
+    group_in: schemas.DeviceGroupUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    if group_in.name is not None and group_in.name.strip():
+        new_name = group_in.name.strip()
+        if new_name.lower() != group.name.lower():
+            existing = (
+                db.query(models.DeviceGroup)
+                .filter(
+                    models.DeviceGroup.organization_id == group.organization_id,
+                    models.DeviceGroup.id != group.id,
+                    func.lower(models.DeviceGroup.name) == new_name.lower(),
+                )
+                .first()
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Device group with name '{new_name}' already exists in this organization",
+                )
+        group.name = new_name
+
+    if group_in.description is not None:
+        group.description = group_in.description.strip() if group_in.description else None
+
+    group.updated_at = datetime.utcnow()
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="DEVICE_GROUP_UPDATED",
+        rule_name="device.group",
+        message=f"Device group '{group.name}' updated by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(group)
+
+    device_count = (
+        db.query(models.Device)
+        .filter(
+            models.Device.group_id == group.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .count()
+    )
+    pol_name = group.policy.name if group.policy else None
+
+    return schemas.DeviceGroupResponse(
+        id=group.id,
+        organization_id=group.organization_id,
+        name=group.name,
+        description=group.description,
+        policy_id=group.policy_id,
+        policy_name=pol_name,
+        device_count=device_count,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+@router.delete("/device-groups/{group_id}", status_code=status.HTTP_200_OK)
+def delete_device_group(
+    group_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    group_name = group.name
+    # Unassign all devices in this group
+    db.query(models.Device).filter(models.Device.group_id == group.id).update(
+        {models.Device.group_id: None}
+    )
+
+    db.delete(group)
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="DEVICE_GROUP_DELETED",
+        rule_name="device.group",
+        message=f"Device group '{group_name}' deleted by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+
+    return {"message": f"Device group '{group_name}' successfully deleted"}
+
+
+@router.get(
+    "/device-groups/{group_id}/devices",
+    response_model=List[schemas.DeviceResponse],
+)
+def list_group_devices(
+    group_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_authenticated_viewer),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    devices = (
+        db.query(models.Device)
+        .filter(
+            models.Device.group_id == group.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .all()
+    )
+    return [enrich_device_response(d, db) for d in devices]
+
+
+@router.post(
+    "/device-groups/{group_id}/devices/{device_id}",
+    response_model=schemas.DeviceResponse,
+)
+def add_device_to_group(
+    group_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == device_id,
+            models.Device.organization_id == group.organization_id,
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found in this organization",
+        )
+
+    if device.status == "DECOMMISSIONED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot assign decommissioned device to a group",
+        )
+
+    device.group_id = group.id
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="DEVICE_ADDED_TO_GROUP",
+        rule_name="device.group",
+        device_id=device.id,
+        message=f"Device '{device.hostname}' added to group '{group.name}' by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(device)
+
+    return enrich_device_response(device, db)
+
+
+@router.delete(
+    "/device-groups/{group_id}/devices/{device_id}",
+    response_model=schemas.DeviceResponse,
+)
+def remove_device_from_group(
+    group_id: uuid.UUID,
+    device_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    device = (
+        db.query(models.Device)
+        .filter(
+            models.Device.id == device_id,
+            models.Device.group_id == group.id,
+        )
+        .first()
+    )
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device is not a member of this group",
+        )
+
+    device.group_id = None
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="DEVICE_REMOVED_FROM_GROUP",
+        rule_name="device.group",
+        device_id=device.id,
+        message=f"Device '{device.hostname}' removed from group '{group.name}' by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(device)
+
+    return enrich_device_response(device, db)
+
+
+@router.post(
+    "/device-groups/{group_id}/policy",
+    response_model=schemas.DeviceGroupResponse,
+)
+def assign_group_policy(
+    group_id: uuid.UUID,
+    policy_in: schemas.DeviceGroupPolicyAssign,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    policy = (
+        db.query(models.Policy)
+        .filter(
+            models.Policy.id == policy_in.policy_id,
+            models.Policy.organization_id == group.organization_id,
+        )
+        .first()
+    )
+    if not policy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Policy not found in this organization",
+        )
+
+    group.policy_id = policy.id
+    group.updated_at = datetime.utcnow()
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="GROUP_POLICY_ASSIGNED",
+        rule_name="policy.assignment",
+        policy_version_id=policy.active_version_id,
+        message=f"Policy '{policy.name}' assigned to group '{group.name}' by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(group)
+
+    device_count = (
+        db.query(models.Device)
+        .filter(
+            models.Device.group_id == group.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .count()
+    )
+
+    return schemas.DeviceGroupResponse(
+        id=group.id,
+        organization_id=group.organization_id,
+        name=group.name,
+        description=group.description,
+        policy_id=group.policy_id,
+        policy_name=policy.name,
+        device_count=device_count,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
+
+
+@router.delete(
+    "/device-groups/{group_id}/policy",
+    response_model=schemas.DeviceGroupResponse,
+)
+def unassign_group_policy(
+    group_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin_or_owner),
+):
+    memberships = [m.organization_id for m in current_user.memberships]
+    group = (
+        db.query(models.DeviceGroup)
+        .filter(
+            models.DeviceGroup.id == group_id,
+            models.DeviceGroup.organization_id.in_(memberships),
+        )
+        .first()
+    )
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device group not found",
+        )
+
+    old_policy_name = group.policy.name if group.policy else "assigned policy"
+    group.policy_id = None
+    group.updated_at = datetime.utcnow()
+
+    # Emit Audit Event
+    event = models.Event(
+        id=uuid.uuid4(),
+        type="GROUP_POLICY_UNASSIGNED",
+        rule_name="policy.assignment",
+        message=f"Policy unassigned from group '{group.name}' (previously '{old_policy_name}') by {current_user.email}.",
+        timestamp=datetime.utcnow(),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(group)
+
+    device_count = (
+        db.query(models.Device)
+        .filter(
+            models.Device.group_id == group.id,
+            models.Device.status != "DECOMMISSIONED",
+        )
+        .count()
+    )
+
+    return schemas.DeviceGroupResponse(
+        id=group.id,
+        organization_id=group.organization_id,
+        name=group.name,
+        description=group.description,
+        policy_id=None,
+        policy_name=None,
+        device_count=device_count,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+    )
