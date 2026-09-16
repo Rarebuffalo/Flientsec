@@ -32,7 +32,8 @@ def get_effective_policy_for_device(
     Deterministic Policy Resolution Precedence:
     1. Direct Device Policy Override (PolicyAssignment with device_id == device.id)
     2. Device Group Policy (device.group_id -> DeviceGroup.policy_id)
-    3. Organization Default Policy (PolicyAssignment with organization_id == device.organization_id and device_id IS NULL)
+    3. Organization Default Policy (PolicyAssignment with organization_id == device.organization_id
+       and device_id IS NULL)
 
     Returns (policy, source_type) where source_type is:
     "DEVICE_OVERRIDE", "GROUP_POLICY", "ORG_DEFAULT", or None
@@ -4410,7 +4411,10 @@ def unassign_group_policy(
         id=uuid.uuid4(),
         type="GROUP_POLICY_UNASSIGNED",
         rule_name="policy.assignment",
-        message=f"Policy unassigned from group '{group.name}' (previously '{old_policy_name}') by {current_user.email}.",
+        message=(
+            f"Policy unassigned from group '{group.name}' "
+            f"(previously '{old_policy_name}') by {current_user.email}."
+        ),
         timestamp=datetime.utcnow(),
     )
     db.add(event)

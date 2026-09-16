@@ -1,8 +1,6 @@
 import json
 import uuid
-import yaml
 from fastapi.testclient import TestClient
-from app.main import app
 from app.core import security
 from app.models import models
 
